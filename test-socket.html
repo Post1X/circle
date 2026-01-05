@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Test Client</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        .connected {
+            background: #4caf50;
+            color: white;
+        }
+        .disconnected {
+            background: #f44336;
+            color: white;
+        }
+        .connecting {
+            background: #ff9800;
+            color: white;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #333;
+            color: #fff;
+            width: 200px;
+        }
+        .log {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #2196F3;
+            padding-left: 10px;
+        }
+        .log-entry.error {
+            border-left-color: #f44336;
+            color: #ff6b6b;
+        }
+        .log-entry.success {
+            border-left-color: #4caf50;
+            color: #81c784;
+        }
+        .log-entry.info {
+            border-left-color: #2196F3;
+            color: #64b5f6;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stat-box {
+            background: #333;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 Socket.IO Test Client</h1>
+    
+    <div class="container">
+        <div id="status" class="status disconnected">Отключено</div>
+        
+        <div>
+            <input type="text" id="serverUrl" value="http://localhost:8000" placeholder="Server URL">
+            <input type="text" id="token" value="" placeholder="JWT Token (optional)">
+            <button onclick="connect()">Подключиться</button>
+            <button onclick="disconnect()">Отключиться</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value" id="pingCount">0</div>
+                <div class="stat-label">Ping отправлено</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="pongCount">0</div>
+                <div class="stat-label">Pong получено</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="messageCount">0</div>
+                <div class="stat-label">Сообщений получено</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="latency">-</div>
+                <div class="stat-label">Задержка (ms)</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>Действия</h3>
+        <button onclick="sendPing()">Отправить Ping</button>
+        <button onclick="authenticate()">Аутентификация</button>
+        <button onclick="getRooms()">Получить комнаты</button>
+        <button onclick="createRoom()">Создать комнату</button>
+        <button onclick="clearLog()">Очистить лог</button>
+    </div>
+
+    <div class="container">
+        <h3>Лог событий</h3>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let socket = null;
+        let pingCount = 0;
+        let pongCount = 0;
+        let messageCount = 0;
+        let pingStartTime = null;
+        let heartbeatInterval = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+
+        function updateStats() {
+            document.getElementById('pingCount').textContent = pingCount;
+            document.getElementById('pongCount').textContent = pongCount;
+            document.getElementById('messageCount').textContent = messageCount;
+        }
+
+        function connect() {
+            const url = document.getElementById('serverUrl').value;
+            const token = document.getElementById('token').value;
+
+            if (socket && socket.connected) {
+                log('Уже подключено', 'error');
+                return;
+            }
+
+            log(`Подключение к ${url}...`, 'info');
+            updateStatus('Подключение...', 'connecting');
+
+            socket = io(url, {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: 5,
+            });
+
+            socket.on('connect', () => {
+                log('✅ Подключено! Socket ID: ' + socket.id, 'success');
+                updateStatus('Подключено', 'connected');
+                
+                if (token) {
+                    authenticate();
+                }
+
+                startHeartbeat();
+            });
+
+            socket.on('disconnect', (reason) => {
+                log(`❌ Отключено: ${reason}`, 'error');
+                updateStatus('Отключено', 'disconnected');
+                stopHeartbeat();
+            });
+
+            socket.on('connect_error', (error) => {
+                log(`❌ Ошибка подключения: ${error.message}`, 'error');
+                updateStatus('Ошибка подключения', 'disconnected');
+            });
+
+            socket.on('pong', () => {
+                pongCount++;
+                if (pingStartTime) {
+                    const latency = Date.now() - pingStartTime;
+                    document.getElementById('latency').textContent = latency + ' ms';
+                    log(`🏓 Pong получен (задержка: ${latency}ms)`, 'success');
+                    pingStartTime = null;
+                }
+                updateStats();
+            });
+
+            socket.onAny((event, ...args) => {
+                messageCount++;
+                log(`📨 Событие: ${event}`, 'info');
+                if (args.length > 0) {
+                    log(`   Данные: ${JSON.stringify(args, null, 2)}`, 'info');
+                }
+                updateStats();
+            });
+
+            socket.on('authenticated', (data) => {
+                log('✅ Аутентификация успешна: ' + JSON.stringify(data), 'success');
+            });
+
+            socket.on('auth_error', (error) => {
+                log('❌ Ошибка аутентификации: ' + JSON.stringify(error), 'error');
+            });
+
+            socket.on('rooms_list', (data) => {
+                log('📋 Список комнат: ' + JSON.stringify(data, null, 2), 'success');
+            });
+
+            socket.on('room_created', (data) => {
+                log('✅ Комната создана: ' + JSON.stringify(data, null, 2), 'success');
+            });
+
+            socket.on('game_state', (data) => {
+                log('🎮 Состояние игры: ' + JSON.stringify(data, null, 2), 'info');
+            });
+
+            socket.on('phase_changed', (data) => {
+                log('🔄 Фаза игры изменена: ' + JSON.stringify(data, null, 2), 'info');
+            });
+        }
+
+        function disconnect() {
+            if (socket) {
+                socket.disconnect();
+                socket = null;
+                log('Отключено вручную', 'info');
+                updateStatus('Отключено', 'disconnected');
+                stopHeartbeat();
+            }
+        }
+
+        function sendPing() {
+            if (!socket || !socket.connected) {
+                log('Не подключено!', 'error');
+                return;
+            }
+            pingStartTime = Date.now();
+            socket.emit('ping');
+            pingCount++;
+            log('📤 Ping отправлен', 'info');
+            updateStats();
+        }
+
+        function authenticate() {
+            if (!socket || !socket.connected) {
+                log('Не подключено!', 'error');
+                return;
+            }
+            const token = document.getElementById('token').value;
+            if (!token) {
+                log('Введите JWT токен!', 'error');
+                return;
+            }
+            socket.emit('authenticate', { token });
+            log('🔐 Отправка аутентификации...', 'info');
+        }
+
+        function getRooms() {
+            if (!socket || !socket.connected) {
+                log('Не подключено!', 'error');
+                return;
+            }
+            socket.emit('get_rooms');
+            log('📋 Запрос списка комнат...', 'info');
+        }
+
+        function createRoom() {
+            if (!socket || !socket.connected) {
+                log('Не подключено!', 'error');
+                return;
+            }
+            socket.emit('create_room', {
+                entry_fee: 100,
+                min_players: 2,
+                max_players: 10
+            });
+            log('➕ Создание комнаты...', 'info');
+        }
+
+        function startHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            heartbeatInterval = setInterval(() => {
+                if (socket && socket.connected) {
+                    sendPing();
+                }
+            }, 5000);
+            log('💓 Heartbeat запущен (каждые 5 секунд)', 'success');
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+                log('💓 Heartbeat остановлен', 'info');
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            pingCount = 0;
+            pongCount = 0;
+            messageCount = 0;
+            updateStats();
+            document.getElementById('latency').textContent = '-';
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (socket) {
+                socket.disconnect();
+            }
+        });
+
+        log('Готов к подключению. Нажмите "Подключиться"', 'info');
+    </script>
+</body>
+</html>
+

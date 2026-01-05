@@ -1,0 +1,608 @@
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  MessageBody,
+  ConnectedSocket,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { Injectable, Logger } from '@nestjs/common';
+import { RoomsService } from './rooms.service';
+import { UsersService } from '../users/users.service';
+import { PlayerCounterService } from '../../services/player-counter/player-counter.service';
+import { WithdrawalService } from '../withdrawal/withdrawal.service';
+import { User } from '../../entities/user.entity';
+
+interface ActiveConnection {
+  user_id: string | null;
+  room_id: string | null;
+  authenticated: boolean;
+  username: string | null;
+}
+
+@WebSocketGateway({
+  cors: {
+    origin: '*',
+  },
+  namespace: '/',
+})
+@Injectable()
+export class RoomsGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
+  @WebSocketServer()
+  server: Server;
+
+  private readonly logger = new Logger(RoomsGateway.name);
+  private activeConnections: Map<string, ActiveConnection> = new Map();
+  private playersInRoom: Map<string, Array<{ user_id: string; username: string }>> = new Map();
+
+  constructor(
+    private roomsService: RoomsService,
+    private usersService: UsersService,
+    private playerCounterService: PlayerCounterService,
+    private withdrawalService: WithdrawalService,
+  ) {}
+
+  handleConnection(client: Socket) {
+    this.logger.log(`Client connected: ${client.id}`);
+    this.activeConnections.set(client.id, {
+      user_id: null,
+      room_id: null,
+      authenticated: false,
+      username: null,
+    });
+    client.emit('connected', { sid: client.id });
+  }
+
+  async handleDisconnect(client: Socket) {
+    this.logger.log(`Client disconnected: ${client.id}`);
+    const connection = this.activeConnections.get(client.id);
+    if (connection) {
+      if (connection.user_id) {
+        await this.playerCounterService.decrementRealCount(connection.user_id);
+      }
+      if (connection.room_id) {
+        await this.leaveRoomSocket(client, connection.room_id);
+      }
+      this.activeConnections.delete(client.id);
+    }
+  }
+
+  @SubscribeMessage('authenticate')
+  async handleAuthenticate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { user_id: string },
+  ) {
+    try {
+      const user = await this.usersService.getUserById(data.user_id);
+      if (!user) {
+        client.emit('auth_error', { message: 'User not found' });
+        return;
+      }
+
+      const connection = this.activeConnections.get(client.id);
+      if (connection) {
+        connection.user_id = user.user_id;
+        connection.authenticated = true;
+        connection.username = user.username;
+      }
+
+      await this.playerCounterService.incrementRealCount(user.user_id);
+
+      client.emit('authenticated', {
+        user_id: user.user_id,
+        wallet_address: user.wallet_address,
+        username: user.username,
+      });
+    } catch (error) {
+      client.emit('auth_error', { message: error.message });
+    }
+  }
+
+  @SubscribeMessage('create_room')
+  async handleCreateRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { entry_fee?: number; min_players?: number; max_players?: number },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      const room = await this.roomsService.createRoom(
+        data.entry_fee || 0,
+        data.min_players || 20,
+        data.max_players || 100,
+      );
+
+      client.emit('room_created', {
+        room_id: room.room_id,
+        entry_fee: room.entry_fee,
+        min_players: room.min_players,
+        max_players: room.max_players,
+        status: room.status,
+        created_at: room.created_at.toISOString(),
+      });
+    } catch (error) {
+      client.emit('error', { message: error.message + 'createroom' });
+    }
+  }
+
+  @SubscribeMessage('join_room')
+  async handleJoinRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room_id: string },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      const roomId = data.room_id;
+      if (!this.playersInRoom.has(roomId)) {
+        this.playersInRoom.set(roomId, []);
+      }
+
+      const players = this.playersInRoom.get(roomId);
+      const alreadyInRoom = players.some(
+        (p) => p.user_id === connection.user_id,
+      );
+
+      if (!alreadyInRoom) {
+        players.push({
+          user_id: connection.user_id,
+          username: connection.username || connection.user_id,
+        });
+      }
+
+      await this.joinRoomSocket(client, roomId);
+    } catch (error) {
+      client.emit('error', { message: error.message + 'joinroom' });
+    }
+  }
+
+  @SubscribeMessage('leave_room')
+  async handleLeaveRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room_id: string },
+  ) {
+    try {
+      await this.leaveRoomSocket(client, data.room_id);
+    } catch (error) {
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  @SubscribeMessage('get_rooms')
+  async handleGetRooms(@ConnectedSocket() client: Socket) {
+    try {
+      const rooms = await this.roomsService.getAllRooms();
+      const roomsData = rooms.map((room) => ({
+        room_id: room.room_id,
+        entry_fee: room.entry_fee,
+        min_players: room.min_players,
+        max_players: room.max_players,
+        status: room.status,
+        created_at: room.created_at.toISOString(),
+      }));
+      client.emit('rooms_list', { rooms: roomsData });
+    } catch (error) {
+      client.emit('error', { message: error.message + 'get_rooms' });
+    }
+  }
+
+  @SubscribeMessage('move')
+  async handleMove(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { dx: number; dy: number },
+  ) {
+    const connection = this.activeConnections.get(client.id);
+    const roomId = connection?.room_id;
+    const userId = connection?.user_id;
+
+    if (!roomId || !userId) {
+      return;
+    }
+
+    const { get_game, set_changes } = await import('../../game');
+    const game = await get_game(roomId);
+    if (game) {
+      game.move_player(userId, data.dx, data.dy);
+      await set_changes(roomId, game);
+    }
+  }
+
+  @SubscribeMessage('activate_skill')
+  async handleActivateSkill(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { skill_type: string },
+  ) {
+    const connection = this.activeConnections.get(client.id);
+    const roomId = connection?.room_id;
+    const userId = connection?.user_id;
+
+    if (!roomId || !userId) {
+      client.emit('skill_error', { message: 'Not in game' });
+      return;
+    }
+
+    const skillType = data.skill_type;
+    if (!['teleport', 'shield', 'boost'].includes(skillType)) {
+      client.emit('skill_error', { message: 'Invalid skill type' });
+      return;
+    }
+
+    const { get_game, set_changes } = await import('../../game');
+    const game = await get_game(roomId);
+    if (!game) {
+      client.emit('skill_error', { message: 'Game not found' });
+      return;
+    }
+
+    const player = game.players.get(userId);
+    if (game.game_phase === 'super' && player && player.get_radius() <= 5) {
+      const lastChanceSuccess = game.check_last_chance(userId);
+      if (lastChanceSuccess) {
+        await set_changes(roomId, game);
+        client.emit('last_chance_activated', {
+          player_id: userId,
+          skill_type: skillType,
+          skill_costs_increased: game.skill_costs_increased,
+        });
+        return;
+      }
+    }
+
+    const [success, message] = game.activate_skill(userId, skillType);
+    if (success) {
+      const skillCost = game.get_skill_cost(userId, skillType);
+      const player = game.players.get(userId);
+      const cooldowns = player
+        ? {
+            teleport: Math.round(Math.max(0, player.teleport_cooldown) * 10) / 10,
+            shield: Math.round(Math.max(0, player.shield_cooldown) * 10) / 10,
+            boost: Math.round(Math.max(0, player.boost_cooldown) * 10) / 10,
+          }
+        : null;
+
+      await set_changes(roomId, game);
+
+      client.emit('skill_activated', {
+        player_id: userId,
+        skill_type: skillType,
+        skill_cost: skillCost,
+        skill_costs_increased: game.skill_costs_increased,
+        cooldowns,
+      });
+
+      this.server.to(roomId).emit('player_used_skill', {
+        player_id: userId,
+        skill_type: skillType,
+      });
+
+      const gameState = game.get_state();
+      client.emit('game_state', gameState);
+    } else {
+      client.emit('skill_error', { message });
+    }
+  }
+
+  @SubscribeMessage('get_leaderboard')
+  async handleGetLeaderboard(@ConnectedSocket() client: Socket) {
+    const connection = this.activeConnections.get(client.id);
+    const roomId = connection?.room_id;
+
+    if (!roomId) {
+      client.emit('leaderboard_error', { message: 'Not in game' });
+      return;
+    }
+
+    // Game logic will be handled by game service
+  }
+
+  @SubscribeMessage('exit_game')
+  async handleExitGame(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { exit_type: string },
+  ) {
+    const connection = this.activeConnections.get(client.id);
+    const roomId = connection?.room_id;
+    const userId = connection?.user_id;
+
+    if (!roomId || !userId) {
+      client.emit('exit_error', { message: 'Not in game' });
+      return;
+    }
+
+    try {
+      const { get_game, set_changes } = await import('../../game');
+      const game = await get_game(roomId);
+      if (!game) {
+        client.emit('exit_error', { message: 'Game not found' });
+        return;
+      }
+
+      const exitType = data.exit_type;
+
+      if (exitType === 'early' && game.game_phase === 'start') {
+        game.process_early_exit(userId);
+        const amount = game.early_exits.get(userId) || 0;
+
+        await this.withdrawalService.creditUserBalance(userId, amount);
+
+        this.server.to(roomId).emit('player_exited', {
+          player_id: userId,
+          exit_type: 'early',
+          winnings: amount,
+        });
+      } else if (exitType === 'super' && game.game_phase === 'super') {
+        game.process_super_exit(userId);
+        const amount = game.super_exits.get(userId) || 0;
+
+        await this.withdrawalService.creditUserBalance(userId, amount);
+
+        this.server.to(roomId).emit('player_exited', {
+          player_id: userId,
+          exit_type: 'super',
+          winnings: amount,
+        });
+      } else {
+        client.emit('exit_error', {
+          message: 'Invalid exit type or phase',
+        });
+        return;
+      }
+
+      await set_changes(roomId, game);
+      await this.leaveRoomSocket(client, roomId);
+    } catch (error) {
+      client.emit('exit_error', { message: error.message });
+    }
+  }
+
+  private async joinRoomSocket(client: Socket, roomId: string) {
+    try {
+      const room = await this.roomsService.getRoomById(roomId);
+      if (!room) {
+        client.emit('error', { message: 'Room not found' });
+        return;
+      }
+
+      if (room.status !== 'waiting') {
+        client.emit('error', { message: 'Room is not accepting players' });
+        return;
+      }
+
+      const connection = this.activeConnections.get(client.id);
+      if (!connection) return;
+
+      if (room.entry_fee && room.entry_fee > 0) {
+        const user = await this.usersService.getUserById(connection.user_id);
+        const userBalance = parseFloat(user.balance.toString());
+        if (userBalance < room.entry_fee) {
+          client.emit('error', {
+            message: 'Insufficient balance for entry fee',
+          });
+          return;
+        }
+
+        await this.withdrawalService.debitUserBalance(
+          connection.user_id!,
+          room.entry_fee,
+        );
+      }
+
+      await client.join(roomId);
+      await this.roomsService.addPlayer(roomId);
+      connection.room_id = roomId;
+
+      const players = this.playersInRoom.get(roomId) || [];
+      this.server.to(roomId).emit('player_joined', {
+        players,
+        room_id: roomId,
+      });
+
+      const needStartGame = await this.roomsService.checkStartGame(roomId);
+      client.emit('joined_room', {
+        players,
+        room_id: roomId,
+        message: 'Successfully joined room',
+        time_to_start: needStartGame ? 30 : null,
+      });
+
+      if (needStartGame) {
+        this.server.to(roomId).emit('game_started', { time_to_start: 30 });
+        setTimeout(() => {
+          // Start game loop
+        }, 30000);
+      }
+    } catch (error) {
+      client.emit('error', { message: error.message + 'join from socket' });
+    }
+  }
+
+  private async leaveRoomSocket(client: Socket, roomId: string) {
+    try {
+      await client.leave(roomId);
+      const connection = this.activeConnections.get(client.id);
+      if (connection) {
+        connection.room_id = null;
+
+        const players = this.playersInRoom.get(roomId);
+        if (players) {
+          const index = players.findIndex(
+            (p) => p.user_id === connection.user_id,
+          );
+          if (index > -1) {
+            players.splice(index, 1);
+          }
+        }
+      }
+
+      this.server.to(roomId).emit('player_left', {
+        user_id: connection?.user_id,
+        room_id: roomId,
+      });
+
+      client.emit('left_room', {
+        room_id: roomId,
+        message: 'Successfully left room',
+      });
+    } catch (error) {
+      client.emit('error', { message: error.message });
+    }
+  }
+
+  private async startGameLoop(roomId: string) {
+    const { create_game, get_game, set_changes, close_game } = await import('../../game');
+    const game = await create_game(roomId, 50, 1000);
+
+    const players = Array.from(this.activeConnections.entries())
+      .filter(([_, conn]) => conn.room_id === roomId)
+      .map(([_, conn]) => ({
+        user_id: conn.user_id!,
+        username: conn.username || conn.user_id!,
+      }));
+
+    for (const player of players) {
+      game.add_player(player.user_id, player.username);
+    }
+
+    let lastPhase = game.game_phase;
+
+    const loop = setInterval(async () => {
+      const currentGame = await get_game(roomId);
+      if (!currentGame) {
+        clearInterval(loop);
+        return;
+      }
+
+      const roomPlayers = Array.from(this.activeConnections.entries())
+        .filter(([_, conn]) => conn.room_id === roomId)
+        .map(([_, conn]) => conn.user_id!);
+
+      if (roomPlayers.length === 0) {
+        clearInterval(loop);
+        await close_game(roomId);
+        return;
+      }
+
+      currentGame.update();
+
+      if (currentGame.game_phase !== lastPhase) {
+        if (currentGame.game_phase === 'top10') {
+          this.server.to(roomId).emit('phase_changed', {
+            new_phase: 'top10',
+            voting_time_remaining: currentGame.get_voting_time_remaining(),
+            message: 'Голосование в топ-10 началось!',
+          });
+        } else if (currentGame.game_phase === 'super') {
+          this.server.to(roomId).emit('phase_changed', {
+            new_phase: 'super',
+            super_game_time_remaining: currentGame.get_super_game_time_remaining(),
+            message: 'Супер игра началась!',
+          });
+        } else if (currentGame.game_phase === 'finished') {
+          this.server.to(roomId).emit('phase_changed', {
+            new_phase: 'finished',
+            message: 'Игра завершена!',
+          });
+          clearInterval(loop);
+          
+          currentGame.finalize_game();
+          const results = {
+            early_exits: Object.fromEntries(currentGame.early_exits),
+            super_exits: Object.fromEntries(currentGame.super_exits),
+            finalists: currentGame.finalists,
+            bonus_fund: currentGame.bonus_fund,
+            zone_fund: currentGame.zone_fund,
+            final_winnings: Object.fromEntries(
+              currentGame.finalists.map((pid) => [
+                pid,
+                currentGame.players.get(pid)?.final_winnings || 0,
+              ]),
+            ),
+          };
+
+          this.server.to(roomId).emit('game_finished', results);
+          await close_game(roomId);
+          return;
+        }
+        lastPhase = currentGame.game_phase;
+      }
+
+      if (currentGame.should_shrink_zone()) {
+        currentGame.shrink_safe_zone();
+        this.server.to(roomId).emit('zone_shrunk', {
+          new_scale: currentGame.safe_zone_scale,
+          damage_per_second: currentGame.zone_damage_per_second,
+          time_to_next_shrink: currentGame.get_time_to_next_shrink(),
+        });
+      }
+
+      if (currentGame.should_spawn_bonus_zone()) {
+        if (currentGame.spawn_bonus_zone()) {
+          const latestZone = currentGame.bonus_zones[currentGame.bonus_zones.length - 1];
+          this.server.to(roomId).emit('bonus_zone_spawned', {
+            x: latestZone.x,
+            y: latestZone.y,
+            radius: latestZone.radius,
+            multiplier: latestZone.multiplier,
+            duration: latestZone.duration,
+            zone_fund: currentGame.zone_fund,
+          });
+        }
+      }
+
+      const expiredZones = currentGame.bonus_zones.filter((z) => z.is_expired());
+      for (const zone of expiredZones) {
+        this.server.to(roomId).emit('bonus_zone_expired', {
+          x: zone.x,
+          y: zone.y,
+          multiplier: zone.multiplier,
+          funds_collected: zone.funds_collected,
+        });
+      }
+
+      if (currentGame.game_phase === 'top10') {
+        const votingTime = currentGame.get_voting_time_remaining();
+        if (votingTime <= 10 && votingTime > 0) {
+          let votesExit = 0;
+          let votesSuper = 0;
+          for (const vote of currentGame.votes.values()) {
+            if (vote === 'exit') votesExit++;
+            if (vote === 'super') votesSuper++;
+          }
+          this.server.to(roomId).emit('voting_warning', {
+            time_remaining: votingTime,
+            votes_submitted: currentGame.votes.size,
+            votes_exit: votesExit,
+            votes_super: votesSuper,
+          });
+        }
+      }
+
+      if (currentGame.game_phase === 'super') {
+        const superTime = currentGame.get_super_game_time_remaining();
+        if (superTime <= 60 && superTime > 0) {
+          this.server.to(roomId).emit('super_game_warning', {
+            time_remaining: superTime,
+            players_remaining: currentGame.players.size,
+          });
+        }
+      }
+
+      const gameState = currentGame.get_state();
+      this.server.to(roomId).emit('game_state', gameState);
+
+      await set_changes(roomId, currentGame);
+    }, 50);
+  }
+}

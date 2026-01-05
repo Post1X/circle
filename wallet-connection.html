@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Подключение кошелька - Circle Mafia</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .step {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .step.active {
+            background: #e7f3ff;
+            border-left-color: #2196F3;
+        }
+
+        .step.completed {
+            background: #e8f5e9;
+            border-left-color: #4CAF50;
+        }
+
+        .step h2 {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        .step.completed .step-number {
+            background: #4CAF50;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .wallet-button {
+            background: #fff;
+            border: 2px solid #667eea;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .wallet-button:hover {
+            background: #667eea;
+            color: white;
+        }
+
+        .wallet-button.connected {
+            background: #4CAF50;
+            border-color: #4CAF50;
+            color: white;
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-size: 14px;
+        }
+
+        .success-box {
+            background: #d4edda;
+            border: 1px solid #28a745;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            color: #155724;
+        }
+
+        .error-box {
+            background: #f8d7da;
+            border: 1px solid #dc3545;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            color: #721c24;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .user-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+
+        .user-info p {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+
+        .user-info strong {
+            color: #667eea;
+        }
+
+        .wallets-list {
+            margin-top: 15px;
+        }
+
+        .wallet-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border: 2px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .wallet-item.primary {
+            border-color: #4CAF50;
+            background: #e8f5e9;
+        }
+
+        .wallet-info {
+            flex: 1;
+        }
+
+        .wallet-address {
+            font-family: monospace;
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+        }
+
+        .wallet-type {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-top: 5px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 10px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .api-url {
+            margin-bottom: 15px;
+        }
+
+        .api-url input {
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Подключение кошелька</h1>
+            <p>Регистрация и привязка кошелька к аккаунту</p>
+        </div>
+
+        <div class="content">
+            <!-- API URL Configuration -->
+            <div class="step">
+                <h2><span class="step-number">0</span>Настройка API</h2>
+                <div class="form-group api-url">
+                    <label>URL API сервера:</label>
+                    <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+                </div>
+            </div>
+
+            <!-- Step 1: Register -->
+            <div class="step" id="step1">
+                <h2><span class="step-number">1</span>Регистрация</h2>
+                <div class="form-group">
+                    <label>Имя пользователя:</label>
+                    <input type="text" id="username" placeholder="Введите имя пользователя" minlength="3" maxlength="15">
+                </div>
+                <div class="form-group">
+                    <label>Пароль:</label>
+                    <input type="password" id="password" placeholder="Введите пароль" minlength="8" maxlength="35">
+                </div>
+                <button onclick="register()">Зарегистрироваться</button>
+                <div id="registerResult"></div>
+            </div>
+
+            <!-- Step 2: Login -->
+            <div class="step" id="step2">
+                <h2><span class="step-number">2</span>Вход</h2>
+                <div class="form-group">
+                    <label>Имя пользователя:</label>
+                    <input type="text" id="loginUsername" placeholder="Введите имя пользователя">
+                </div>
+                <div class="form-group">
+                    <label>Пароль:</label>
+                    <input type="password" id="loginPassword" placeholder="Введите пароль">
+                </div>
+                <button onclick="login()">Войти</button>
+                <div id="loginResult"></div>
+            </div>
+
+            <!-- Step 3: Get Nonce -->
+            <div class="step hidden" id="step3">
+                <h2><span class="step-number">3</span>Получить Nonce</h2>
+                <div class="form-group">
+                    <label>Тип кошелька:</label>
+                    <select id="walletType">
+                        <option value="tronlink">TronLink (Tron)</option>
+                        <option value="safepal">SafePal (Tron)</option>
+                        <option value="metamask">MetaMask (Ethereum/BSC/Polygon)</option>
+                        <option value="phantom">Phantom (Solana)</option>
+                        <option value="solflare">Solflare (Solana)</option>
+                        <option value="solong">Solong (Solana)</option>
+                        <option value="ledger">Ledger</option>
+                        <option value="torus">Torus</option>
+                    </select>
+                </div>
+                <div class="info-box">
+                    <strong>Инструкция:</strong> Сначала подключите кошелек в браузере, затем нажмите кнопку ниже.
+                </div>
+                <button onclick="connectWallet()" class="wallet-button" id="connectWalletBtn">Подключить кошелек</button>
+                <button onclick="getNonce()" id="getNonceBtn" disabled>Получить Nonce</button>
+                <div id="nonceResult"></div>
+            </div>
+
+            <!-- Step 4: Sign Message -->
+            <div class="step hidden" id="step4">
+                <h2><span class="step-number">4</span>Подписать сообщение</h2>
+                <div class="info-box">
+                    <strong>Сообщение для подписи:</strong>
+                    <div id="messageToSign" style="margin-top: 10px; font-family: monospace; word-break: break-all;"></div>
+                </div>
+                <button onclick="signMessage()" id="signBtn">Подписать сообщение</button>
+                <div id="signResult"></div>
+            </div>
+
+            <!-- Step 5: Wallet Connect -->
+            <div class="step hidden" id="step5">
+                <h2><span class="step-number">5</span>Подключить кошелек</h2>
+                <button onclick="walletConnect()" id="walletConnectBtn">Подключить кошелек к аккаунту</button>
+                <div id="walletConnectResult"></div>
+            </div>
+
+            <!-- Step 6: Bind Additional Wallet -->
+            <div class="step hidden" id="step6">
+                <h2><span class="step-number">6</span>Привязать дополнительный кошелек</h2>
+                <div class="form-group">
+                    <label>Тип кошелька:</label>
+                    <select id="bindWalletType">
+                        <option value="tronlink">TronLink (Tron)</option>
+                        <option value="safepal">SafePal (Tron)</option>
+                        <option value="metamask">MetaMask (Ethereum/BSC/Polygon)</option>
+                        <option value="phantom">Phantom (Solana)</option>
+                        <option value="solflare">Solflare (Solana)</option>
+                        <option value="solong">Solong (Solana)</option>
+                        <option value="ledger">Ledger</option>
+                        <option value="torus">Torus</option>
+                    </select>
+                </div>
+                <button onclick="bindAdditionalWallet()" class="wallet-button">Подключить новый кошелек</button>
+                <button onclick="getNonceForBind()" id="getNonceBindBtn" disabled>Получить Nonce</button>
+                <button onclick="signAndBind()" id="signBindBtn" disabled>Подписать и привязать</button>
+                <div id="bindResult"></div>
+            </div>
+
+            <!-- Step 7: View Wallets -->
+            <div class="step hidden" id="step7">
+                <h2><span class="step-number">7</span>Мои кошельки</h2>
+                <button onclick="loadWallets()">Обновить список</button>
+                <div id="walletsList" class="wallets-list"></div>
+            </div>
+
+            <!-- User Info -->
+            <div class="step hidden" id="userInfo">
+                <h2>Информация о пользователе</h2>
+                <div id="userInfoContent" class="user-info"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = () => document.getElementById('apiUrl').value || 'http://localhost:8000';
+        let accessToken = localStorage.getItem('access_token');
+        let currentWalletAddress = null;
+        let currentWalletType = null;
+        let currentNonce = null;
+        let currentMessage = null;
+        let currentSignature = null;
+
+        // Check if user is already logged in
+        if (accessToken) {
+            showStep('step2');
+            markStepCompleted('step2');
+            loadUserInfo();
+            loadWallets();
+        }
+
+        function showStep(stepId) {
+            document.querySelectorAll('.step').forEach(step => {
+                if (step.id && step.id.startsWith('step')) {
+                    step.classList.add('hidden');
+                }
+            });
+            const step = document.getElementById(stepId);
+            if (step) {
+                step.classList.remove('hidden');
+                step.classList.add('active');
+            }
+        }
+
+        function markStepCompleted(stepId) {
+            const step = document.getElementById(stepId);
+            if (step) {
+                step.classList.remove('active');
+                step.classList.add('completed');
+            }
+        }
+
+        function showResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = type === 'error' ? 'error-box' : type === 'success' ? 'success-box' : 'info-box';
+            div.textContent = message;
+            element.appendChild(div);
+        }
+
+        async function register() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                showResult('registerResult', 'Заполните все поля', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('registerResult', 'Регистрация успешна! Теперь войдите.', 'success');
+                    markStepCompleted('step1');
+                    showStep('step2');
+                } else {
+                    showResult('registerResult', data.message || 'Ошибка регистрации', 'error');
+                }
+            } catch (error) {
+                showResult('registerResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showResult('loginResult', 'Заполните все поля', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    accessToken = data.access_token;
+                    localStorage.setItem('access_token', accessToken);
+                    showResult('loginResult', 'Вход выполнен успешно!', 'success');
+                    markStepCompleted('step2');
+                    showStep('step3');
+                    loadUserInfo();
+                } else {
+                    showResult('loginResult', data.message || 'Ошибка входа', 'error');
+                }
+            } catch (error) {
+                showResult('loginResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function connectWallet() {
+            currentWalletType = document.getElementById('walletType').value;
+            
+            try {
+                let address = null;
+
+                if (currentWalletType === 'tronlink' || currentWalletType === 'safepal') {
+                    if (!window.tronWeb || !window.tronWeb.ready) {
+                        showResult('nonceResult', 'TronLink не найден. Установите расширение TronLink.', 'error');
+                        return;
+                    }
+                    address = window.tronWeb.defaultAddress.base58;
+                } else if (currentWalletType === 'metamask') {
+                    if (!window.ethereum) {
+                        showResult('nonceResult', 'MetaMask не найден. Установите расширение MetaMask.', 'error');
+                        return;
+                    }
+                    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    address = accounts[0];
+                } else if (currentWalletType === 'phantom' || currentWalletType === 'solflare' || currentWalletType === 'solong') {
+                    if (!window.solana || !window.solana.isPhantom) {
+                        showResult('nonceResult', 'Phantom не найден. Установите расширение Phantom.', 'error');
+                        return;
+                    }
+                    const response = await window.solana.connect();
+                    address = response.publicKey.toBase58();
+                } else {
+                    showResult('nonceResult', 'Этот тип кошелька пока не поддерживается в демо', 'error');
+                    return;
+                }
+
+                currentWalletAddress = address;
+                document.getElementById('connectWalletBtn').classList.add('connected');
+                document.getElementById('connectWalletBtn').textContent = `✅ Подключен: ${address.substring(0, 10)}...`;
+                document.getElementById('getNonceBtn').disabled = false;
+                showResult('nonceResult', `Кошелек подключен: ${address}`, 'success');
+            } catch (error) {
+                showResult('nonceResult', `Ошибка подключения: ${error.message}`, 'error');
+            }
+        }
+
+        async function getNonce() {
+            if (!currentWalletAddress) {
+                showResult('nonceResult', 'Сначала подключите кошелек', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/nonce`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        address: currentWalletAddress,
+                        wallet_type: currentWalletType 
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    currentNonce = data.nonce;
+                    currentMessage = `Sign this message to connect your wallet: ${currentNonce}`;
+                    document.getElementById('messageToSign').textContent = currentMessage;
+                    showResult('nonceResult', 'Nonce получен! Теперь подпишите сообщение.', 'success');
+                    markStepCompleted('step3');
+                    showStep('step4');
+                } else {
+                    showResult('nonceResult', data.message || 'Ошибка получения nonce', 'error');
+                }
+            } catch (error) {
+                showResult('nonceResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function signMessage() {
+            if (!currentMessage || !currentWalletAddress) {
+                showResult('signResult', 'Сначала получите nonce', 'error');
+                return;
+            }
+
+            try {
+                let signature = null;
+
+                if (currentWalletType === 'tronlink' || currentWalletType === 'safepal') {
+                    signature = await window.tronWeb.trx.signMessage(currentMessage);
+                } else if (currentWalletType === 'metamask') {
+                    signature = await window.ethereum.request({
+                        method: 'personal_sign',
+                        params: [currentMessage, currentWalletAddress]
+                    });
+                } else if (currentWalletType === 'phantom' || currentWalletType === 'solflare' || currentWalletType === 'solong') {
+                    const encodedMessage = new TextEncoder().encode(currentMessage);
+                    const signedMessage = await window.solana.signMessage(encodedMessage, 'utf8');
+                    const bs58 = await import('https://cdn.jsdelivr.net/npm/bs58@5.0.0/+esm');
+                    signature = bs58.default.encode(signedMessage.signature);
+                } else {
+                    showResult('signResult', 'Этот тип кошелька пока не поддерживается', 'error');
+                    return;
+                }
+
+                currentSignature = signature;
+                showResult('signResult', 'Сообщение подписано! Теперь подключите кошелек.', 'success');
+                markStepCompleted('step4');
+                showStep('step5');
+            } catch (error) {
+                showResult('signResult', `Ошибка подписи: ${error.message}`, 'error');
+            }
+        }
+
+        async function walletConnect() {
+            if (!currentSignature || !currentNonce || !currentMessage) {
+                showResult('walletConnectResult', 'Сначала подпишите сообщение', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/wallet-connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        address: currentWalletAddress,
+                        signature: currentSignature,
+                        nonce: currentNonce,
+                        message: currentMessage,
+                        wallet_type: currentWalletType
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    if (data.access_token) {
+                        accessToken = data.access_token;
+                        localStorage.setItem('access_token', accessToken);
+                    }
+                    showResult('walletConnectResult', 
+                        `Кошелек успешно подключен! Адрес: ${data.wallet_address}`, 
+                        'success'
+                    );
+                    markStepCompleted('step5');
+                    showStep('step6');
+                    showStep('step7');
+                    loadUserInfo();
+                    loadWallets();
+                } else {
+                    showResult('walletConnectResult', data.message || 'Ошибка подключения', 'error');
+                }
+            } catch (error) {
+                showResult('walletConnectResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        let bindWalletAddress = null;
+        let bindNonce = null;
+        let bindMessage = null;
+        let bindSignature = null;
+
+        async function bindAdditionalWallet() {
+            const walletType = document.getElementById('bindWalletType').value;
+            
+            try {
+                let address = null;
+
+                if (walletType === 'tronlink' || walletType === 'safepal') {
+                    if (!window.tronWeb || !window.tronWeb.ready) {
+                        showResult('bindResult', 'TronLink не найден', 'error');
+                        return;
+                    }
+                    address = window.tronWeb.defaultAddress.base58;
+                } else if (walletType === 'metamask') {
+                    if (!window.ethereum) {
+                        showResult('bindResult', 'MetaMask не найден', 'error');
+                        return;
+                    }
+                    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    address = accounts[0];
+                } else if (walletType === 'phantom' || walletType === 'solflare' || walletType === 'solong') {
+                    if (!window.solana) {
+                        showResult('bindResult', 'Phantom не найден', 'error');
+                        return;
+                    }
+                    const response = await window.solana.connect();
+                    address = response.publicKey.toBase58();
+                }
+
+                bindWalletAddress = address;
+                document.getElementById('getNonceBindBtn').disabled = false;
+                showResult('bindResult', `Кошелек подключен: ${address}`, 'success');
+            } catch (error) {
+                showResult('bindResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function getNonceForBind() {
+            if (!bindWalletAddress) {
+                showResult('bindResult', 'Сначала подключите кошелек', 'error');
+                return;
+            }
+
+            const walletType = document.getElementById('bindWalletType').value;
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/nonce`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        address: bindWalletAddress,
+                        wallet_type: walletType 
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    bindNonce = data.nonce;
+                    bindMessage = `Sign this message to bind your wallet: ${bindNonce}`;
+                    document.getElementById('signBindBtn').disabled = false;
+                    showResult('bindResult', `Nonce получен. Сообщение: ${bindMessage}`, 'success');
+                } else {
+                    showResult('bindResult', data.message || 'Ошибка', 'error');
+                }
+            } catch (error) {
+                showResult('bindResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function signAndBind() {
+            if (!bindMessage || !bindWalletAddress) {
+                showResult('bindResult', 'Сначала получите nonce', 'error');
+                return;
+            }
+
+            const walletType = document.getElementById('bindWalletType').value;
+
+            try {
+                let signature = null;
+
+                if (walletType === 'tronlink' || walletType === 'safepal') {
+                    signature = await window.tronWeb.trx.signMessage(bindMessage);
+                } else if (walletType === 'metamask') {
+                    signature = await window.ethereum.request({
+                        method: 'personal_sign',
+                        params: [bindMessage, bindWalletAddress]
+                    });
+                } else if (walletType === 'phantom' || walletType === 'solflare' || walletType === 'solong') {
+                    const encodedMessage = new TextEncoder().encode(bindMessage);
+                    const signedMessage = await window.solana.signMessage(encodedMessage, 'utf8');
+                    const bs58 = await import('https://cdn.jsdelivr.net/npm/bs58@5.0.0/+esm');
+                    signature = bs58.default.encode(signedMessage.signature);
+                }
+
+                bindSignature = signature;
+
+                const response = await fetch(`${API_URL()}/api/users/wallet/bind`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${accessToken}`
+                    },
+                    body: JSON.stringify({
+                        address: bindWalletAddress,
+                        signature: bindSignature,
+                        message: bindMessage,
+                        wallet_type: walletType
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showResult('bindResult', 'Кошелек успешно привязан!', 'success');
+                    loadWallets();
+                    bindWalletAddress = null;
+                    bindNonce = null;
+                    bindMessage = null;
+                    bindSignature = null;
+                    document.getElementById('getNonceBindBtn').disabled = true;
+                    document.getElementById('signBindBtn').disabled = true;
+                } else {
+                    showResult('bindResult', data.message || 'Ошибка привязки', 'error');
+                }
+            } catch (error) {
+                showResult('bindResult', `Ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadWallets() {
+            if (!accessToken) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/wallets`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const list = document.getElementById('walletsList');
+                    list.innerHTML = '';
+
+                    if (data.length === 0) {
+                        list.innerHTML = '<div class="info-box">У вас нет привязанных кошельков</div>';
+                        return;
+                    }
+
+                    data.forEach(wallet => {
+                        const div = document.createElement('div');
+                        div.className = `wallet-item ${wallet.is_primary ? 'primary' : ''}`;
+                        div.innerHTML = `
+                            <div class="wallet-info">
+                                <div class="wallet-address">${wallet.address}</div>
+                                <div>
+                                    <span class="wallet-type">${wallet.wallet_type}</span>
+                                    <span class="wallet-type" style="background: #666;">${wallet.network}</span>
+                                    ${wallet.is_primary ? '<span class="badge">Primary</span>' : ''}
+                                </div>
+                            </div>
+                            <div>
+                                ${!wallet.is_primary ? `<button onclick="setPrimary(${wallet.id})" style="width: auto; padding: 5px 10px; font-size: 12px; margin-right: 5px;">Primary</button>` : ''}
+                                <button onclick="unbindWallet(${wallet.id})" style="width: auto; padding: 5px 10px; font-size: 12px; background: #dc3545;">Удалить</button>
+                            </div>
+                        `;
+                        list.appendChild(div);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading wallets:', error);
+            }
+        }
+
+        async function setPrimary(walletId) {
+            if (!accessToken) return;
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/wallet/${walletId}/primary`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (response.ok) {
+                    loadWallets();
+                }
+            } catch (error) {
+                console.error('Error setting primary:', error);
+            }
+        }
+
+        async function unbindWallet(walletId) {
+            if (!accessToken) return;
+            if (!confirm('Вы уверены, что хотите отвязать этот кошелек?')) return;
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/wallet/${walletId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (response.ok) {
+                    loadWallets();
+                }
+            } catch (error) {
+                console.error('Error unbinding wallet:', error);
+            }
+        }
+
+        async function loadUserInfo() {
+            if (!accessToken) return;
+
+            try {
+                const response = await fetch(`${API_URL()}/api/users/me`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    const info = document.getElementById('userInfoContent');
+                    info.innerHTML = `
+                        <p><strong>ID:</strong> ${data.user_id}</p>
+                        <p><strong>Имя пользователя:</strong> ${data.username}</p>
+                        <p><strong>Баланс:</strong> ${parseFloat(data.balance)} USDT</p>
+                        <p><strong>Игр сыграно:</strong> ${data.games_played}</p>
+                        <p><strong>Всего выиграно:</strong> ${parseFloat(data.total_winnings)} USDT</p>
+                    `;
+                    document.getElementById('userInfo').classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+            }
+        }
+    </script>
+</body>
+</html>
+

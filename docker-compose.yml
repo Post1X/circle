@@ -1,0 +1,131 @@
+networks:
+  backend:
+    driver: bridge
+
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      alembic:
+        condition: service_completed_successfully  
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: circlemafia_user
+      POSTGRES_PASSWORD: kjhdsuiheuifbuwehfkisdh
+      POSTGRES_DB: circlemafia
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U circlemafia_user -d circlemafia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    
+
+  redis:
+    image: redis:alpine
+    container_name: backend_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  alembic:
+    build: .
+    command: sh ./run_migrations.sh
+    networks:
+      - backend
+    environment:
+      DB_NAME: circlemafia
+      DB_USER: circlemafia_user
+      DB_PASS: kjhdsuiheuifbuwehfkisdh
+      DB_HOST: db
+      DB_PORT: 5432
+      MODE: test
+      ALGORITHM: HS256
+      SECRET_KEY: cypyn123gntftdgj6fgffg
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MNEMONIC: "giant barely fetch few cute speak cube news busy garbage walnut sorry"
+      TRON_API_KEY: 57f8fa1f-5b3b-4c8c-8a05-1aa8493dcae4
+      ENCRYPTION_KEY: "/I816hpw8ncnqawgZLsy0zeniaM3zQxt/x4fdvqvDrA="
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/app/migrations
+      - ./run_migrations.sh:/app/run_migrations.sh
+
+  celery_worker:
+    build: .
+    command: celery -A servises.player_counter.celery_app worker --loglevel=info
+    networks:
+      - backend
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+  celery_beat:
+    build: .
+    command: celery -A servises.player_counter.celery_app beat --loglevel=info
+    networks:
+      - backend
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      alembic:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
+  redis_data:
+
