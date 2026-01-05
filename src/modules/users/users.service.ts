@@ -7,8 +7,10 @@ import { Nonce } from '../../entities/nonce.entity';
 import { AuthService } from '../auth/auth.service';
 import { AppConfigService } from '../../config/config.service';
 import { WalletVerificationService } from '../../services/wallet-verification/wallet-verification.service';
+import { MagicVerificationService } from '../../services/magic-verification/magic-verification.service';
 import { WalletType, BlockchainNetwork } from './dto/wallet.dto';
-import * as crypto from 'crypto';
+import { UnauthorizedException } from '@nestjs/common';
+import { randomUUID, randomBytes } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -22,6 +24,7 @@ export class UsersService {
     private authService: AuthService,
     private configService: AppConfigService,
     private walletVerificationService: WalletVerificationService,
+    private magicVerificationService: MagicVerificationService,
   ) {}
 
   async createUser(username: string, password: string): Promise<User> {
@@ -35,6 +38,7 @@ export class UsersService {
 
     const hashedPassword = await this.authService.hashPassword(password);
     const user = this.userRepository.create({
+      user_id: randomUUID(),
       username,
       hashed_password: hashedPassword,
       balance: 0,
@@ -81,7 +85,7 @@ export class UsersService {
   }
 
   async createNonce(address: string): Promise<string> {
-    const nonceValue = crypto.randomBytes(32).toString('hex');
+    const nonceValue = randomBytes(32).toString('hex');
     
     await this.nonceRepository.update(
       { address, used: false },
@@ -92,6 +96,7 @@ export class UsersService {
       address,
       nonce: nonceValue,
       used: false,
+      created_at: new Date(),
     });
 
     await this.nonceRepository.save(nonce);
@@ -99,9 +104,46 @@ export class UsersService {
   }
 
   async getNonce(address: string, nonceValue: string): Promise<Nonce | null> {
-    return await this.nonceRepository.findOne({
+    const nonce = await this.nonceRepository.findOne({
       where: { address, nonce: nonceValue, used: false },
     });
+
+    if (!nonce) {
+      return null;
+    }
+
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    if (nonce.created_at < fiveMinutesAgo) {
+      nonce.used = true;
+      await this.nonceRepository.save(nonce);
+      return null;
+    }
+
+    return nonce;
+  }
+
+  async checkNonceStatus(
+    address: string,
+    nonceValue: string,
+  ): Promise<'used' | 'expired' | 'not_found'> {
+    const nonce = await this.nonceRepository.findOne({
+      where: { address, nonce: nonceValue },
+    });
+
+    if (!nonce) {
+      return 'not_found';
+    }
+
+    if (nonce.used) {
+      return 'used';
+    }
+
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    if (nonce.created_at < fiveMinutesAgo) {
+      return 'expired';
+    }
+
+    return 'not_found';
   }
 
   async markNonceAsUsed(nonce: Nonce): Promise<void> {
@@ -288,6 +330,48 @@ export class UsersService {
       const account = tronWeb.createAccount();
       return account.address.base58;
     }
+  }
+
+  async connectMagicLink(
+    address: string,
+    didToken: string,
+  ): Promise<{ user: User; accessToken: string }> {
+    const magicUser = await this.magicVerificationService.verifyDidToken(
+      didToken,
+    );
+
+    if (
+      magicUser.publicAddress.toLowerCase() !== address.toLowerCase()
+    ) {
+      throw new UnauthorizedException(
+        'Address does not match the signed message',
+      );
+    }
+
+    if (!this.magicVerificationService.validateAddress(address)) {
+      throw new UnauthorizedException('Invalid wallet address format');
+    }
+
+    let user = await this.getUserByWalletAddress(address);
+
+    if (!user) {
+      const randomUsername = `user_${Math.random().toString(36).substring(7)}`;
+      user = await this.createUser(
+        randomUsername,
+        randomBytes(16).toString('hex'),
+      );
+
+      await this.bindWalletToUser(
+        user.user_id,
+        address,
+        WalletType.METAMASK,
+        false,
+      );
+    }
+
+    const accessToken = await this.authService.createAccessToken(user.user_id);
+
+    return { user, accessToken };
   }
 }
 

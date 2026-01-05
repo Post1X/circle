@@ -78,3 +78,20 @@ export class WalletResponseDto {
   created_at: Date;
 }
 
+export class MagicLinkDto {
+  @IsString()
+  @IsNotEmpty()
+  address: string;
+
+  @IsString()
+  @IsNotEmpty()
+  did_token: string;
+}
+
+export class MagicLinkResponseDto {
+  access_token: string;
+  user_id: string;
+  wallet_address: string;
+  username: string;
+}
+

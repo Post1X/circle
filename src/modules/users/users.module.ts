@@ -9,6 +9,7 @@ import { Transaction } from '../../entities/transaction.entity';
 import { AuthModule } from '../auth/auth.module';
 import { ConfigModule } from '../../config/config.module';
 import { WalletVerificationModule } from '../../services/wallet-verification/wallet-verification.module';
+import { MagicVerificationModule } from '../../services/magic-verification/magic-verification.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { WalletVerificationModule } from '../../services/wallet-verification/wal
     AuthModule,
     ConfigModule,
     WalletVerificationModule,
+    MagicVerificationModule,
   ],
   controllers: [UsersController],
   providers: [UsersService],

@@ -14,7 +14,7 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: [join(__dirname, '..', '**', '*.entity{.ts,.js}')],
   migrations: [join(__dirname, '..', 'migrations', '*.{.ts,.js}')],
   synchronize: false,
-  logging: process.env.MODE === 'test',
+  logging: false,
   extra: {
     max: 20,
     min: 5,

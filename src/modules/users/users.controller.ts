@@ -31,6 +31,8 @@ import {
   WalletType,
   BalanceResponseDto,
   TronAddressResponseDto,
+  MagicLinkDto,
+  MagicLinkResponseDto,
 } from './dto';
 import * as crypto from 'crypto';
 
@@ -148,11 +150,26 @@ export class UsersController {
     const nonce = await this.usersService.createNonce(dto.address);
     return { nonce };
   }
+  // TODO: Add @Throttle(10, 60) decorator after installing @nestjs/throttler
+  // This will limit to 10 requests per minute
 
   @Post('wallet-connect')
   async walletConnect(@Body() dto: WalletConnectDto) {
     const nonce = await this.usersService.getNonce(dto.address, dto.nonce);
     if (!nonce) {
+      // Проверяем, был ли nonce использован или истек
+      const usedNonce = await this.usersService.checkNonceStatus(
+        dto.address,
+        dto.nonce,
+      );
+      if (usedNonce === 'used') {
+        throw new UnauthorizedException('Nonce has already been used');
+      }
+      if (usedNonce === 'expired') {
+        throw new UnauthorizedException(
+          'Nonce has expired. Please request a new one.',
+        );
+      }
       throw new UnauthorizedException('Invalid or expired nonce');
     }
 
@@ -164,7 +181,7 @@ export class UsersController {
     );
 
     if (!isValid) {
-      throw new UnauthorizedException('Invalid signature');
+      throw new UnauthorizedException('Signature verification failed');
     }
 
     await this.usersService.markNonceAsUsed(nonce);
@@ -201,6 +218,21 @@ export class UsersController {
       leaderboard_rank: user.leaderboard_rank,
       is_admin: user.is_admin,
       avatar_url: user.avatar_url,
+    };
+  }
+
+  @Post('magic-link')
+  async magicLink(@Body() dto: MagicLinkDto): Promise<MagicLinkResponseDto> {
+    const { user, accessToken } = await this.usersService.connectMagicLink(
+      dto.address,
+      dto.did_token,
+    );
+
+    return {
+      access_token: accessToken,
+      user_id: user.user_id,
+      wallet_address: dto.address,
+      username: user.username,
     };
   }
 

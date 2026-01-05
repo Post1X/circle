@@ -57,6 +57,10 @@ export class AppConfigService {
     return this.configService.get<string>('ENCRYPTION_KEY');
   }
 
+  get magicSecretKey(): string {
+    return this.configService.get<string>('MAGIC_SECRET_KEY');
+  }
+
   get databaseUrl(): string {
     return `postgresql://${this.dbUser}:${this.dbPass}@${this.dbHost}:${this.dbPort}/${this.dbName}`;
   }

@@ -104,8 +104,8 @@ export class WalletVerificationService {
     try {
       const { ethers } = require('ethers');
 
-      const messageHash = ethers.utils.hashMessage(message);
-      const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
+      const messageHash = ethers.hashMessage(message);
+      const recoveredAddress = ethers.recoverAddress(messageHash, signature);
 
       return recoveredAddress.toLowerCase() === address.toLowerCase();
     } catch (error) {
@@ -132,7 +132,7 @@ export class WalletVerificationService {
         case BlockchainNetwork.BSC:
         case BlockchainNetwork.POLYGON:
           const { ethers } = require('ethers');
-          return ethers.utils.isAddress(address);
+          return ethers.isAddress(address);
         default:
           return false;
       }

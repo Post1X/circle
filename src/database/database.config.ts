@@ -21,7 +21,7 @@ export const getDatabaseConfig = (
       connectionTimeoutMillis: 2000,
     },
     synchronize: false,
-    logging: configService.mode === 'test',
+    logging: false,
     autoLoadEntities: true,
     keepConnectionAlive: true,
     retryAttempts: 3,

@@ -8,6 +8,8 @@ import { Repository, LessThanOrEqual } from 'typeorm';
 import { WithdrawalRequest } from '../../entities/withdrawal-request.entity';
 import { HotWallet } from '../../entities/hot-wallet.entity';
 import { User } from '../../entities/user.entity';
+import { WalletVerificationService } from '../../services/wallet-verification/wallet-verification.service';
+import { BlockchainNetwork } from '../../modules/users/dto/wallet.dto';
 
 @Injectable()
 export class WithdrawalService {
@@ -18,6 +20,7 @@ export class WithdrawalService {
     private hotWalletRepository: Repository<HotWallet>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private walletVerificationService: WalletVerificationService,
   ) {}
 
   async createWithdrawalRequest(
@@ -26,6 +29,15 @@ export class WithdrawalService {
     toAddress: string,
     fee: number = 2.5,
   ): Promise<WithdrawalRequest> {
+    if (
+      !this.walletVerificationService.validateAddress(
+        toAddress,
+        BlockchainNetwork.TRON,
+      )
+    ) {
+      throw new BadRequestException('Invalid TRON wallet address');
+    }
+
     const withdrawal = this.withdrawalRepository.create({
       user_id: userId,
       amount,
