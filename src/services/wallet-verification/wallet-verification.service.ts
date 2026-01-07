@@ -84,15 +84,14 @@ export class WalletVerificationService {
         return false;
       }
 
-      this.logger.debug(`verifyResult type: ${typeof verifyResult}, value: ${verifyResult}`);
+      this.logger.debug(`verifyResult: ${verifyResult}, type: ${typeof verifyResult}`);
 
-      const recoveredAddressHex = verifyResult;
-      const recoveredAddress = tronWeb.address.fromHex(recoveredAddressHex);
-      const providedAddressHex = tronWeb.address.toHex(address);
+      const recoveredAddressHex = String(verifyResult).toLowerCase();
+      const providedAddressHex = tronWeb.address.toHex(address).toLowerCase();
 
-      this.logger.log(`TRON address comparison - provided: ${address} (hex: ${providedAddressHex}), recovered: ${recoveredAddress} (hex: ${recoveredAddressHex})`);
+      this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
 
-      const isValid = recoveredAddress.toLowerCase() === address.toLowerCase();
+      const isValid = recoveredAddressHex === providedAddressHex;
 
       if (!isValid) {
         this.logger.warn(`TRON signature mismatch - provided: ${address}, recovered: ${recoveredAddress}, providedHex: ${providedAddressHex}, recoveredHex: ${recoveredAddressHex}`);
