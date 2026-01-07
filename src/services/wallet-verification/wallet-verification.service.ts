@@ -78,149 +78,26 @@ export class WalletVerificationService {
         let cleanSignature = signature;
         if (signature.startsWith('0x')) {
           cleanSignature = signature.slice(2);
-          this.logger.debug(`Removed 0x prefix from signature: ${cleanSignature.substring(0, 20)}...`);
         }
 
-        this.logger.debug(`Original message: "${message}"`);
-        this.logger.debug(`Message length: ${message.length}`);
-
-        let verifyResult;
-        let triedMethods = [];
-
-        const methods = [
-          {
-            name: 'verifyMessageV2 with string (no prefix)',
-            fn: () => tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(message, cleanSignature) : null,
-          },
-          {
-            name: 'verifyMessage with string (no prefix)',
-            fn: () => tronWeb.trx.verifyMessage(message, cleanSignature),
-          },
-          {
-            name: 'verifyMessageV2 with hex (no prefix)',
-            fn: () => {
-              const messageHex = Buffer.from(message).toString('hex');
-              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageHex, cleanSignature) : null;
-            },
-          },
-          {
-            name: 'verifyMessage with hex (no prefix)',
-            fn: () => {
-              const messageHex = Buffer.from(message).toString('hex');
-              return tronWeb.trx.verifyMessage(messageHex, cleanSignature);
-            },
-          },
-          {
-            name: 'verifyMessageV2 with string (with prefix)',
-            fn: () => {
-              const messageWithPrefix = `TRON Signed Message:\n${message}`;
-              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageWithPrefix, cleanSignature) : null;
-            },
-          },
-          {
-            name: 'verifyMessage with string (with prefix)',
-            fn: () => {
-              const messageWithPrefix = `TRON Signed Message:\n${message}`;
-              return tronWeb.trx.verifyMessage(messageWithPrefix, cleanSignature);
-            },
-          },
-          {
-            name: 'verifyMessageV2 with hex (with prefix)',
-            fn: () => {
-              const messageWithPrefix = `TRON Signed Message:\n${message}`;
-              const messageHex = Buffer.from(messageWithPrefix).toString('hex');
-              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageHex, cleanSignature) : null;
-            },
-          },
-          {
-            name: 'verifyMessage with hex (with prefix)',
-            fn: () => {
-              const messageWithPrefix = `TRON Signed Message:\n${message}`;
-              const messageHex = Buffer.from(messageWithPrefix).toString('hex');
-              return tronWeb.trx.verifyMessage(messageHex, cleanSignature);
-            },
-          },
-        ];
-
-        for (const method of methods) {
-          if (!method.fn) continue;
-          
-          try {
-            this.logger.debug(`Trying: ${method.name}`);
-            const result = method.fn();
-            
-            if (result && typeof result.then === 'function') {
-              verifyResult = await result;
-            } else {
-              verifyResult = result;
-            }
-
-            if (verifyResult) {
-              this.logger.log(`SUCCESS with method: ${method.name}, recovered address: ${verifyResult}`);
-              triedMethods.push(`${method.name}: SUCCESS (${verifyResult})`);
-              break;
-            } else {
-              triedMethods.push(`${method.name}: returned false/null`);
-            }
-          } catch (error) {
-            const errorMsg = typeof error === 'string' ? error : (error?.message || String(error));
-            triedMethods.push(`${method.name}: ERROR (${errorMsg})`);
-            this.logger.debug(`${method.name} failed: ${errorMsg}`);
-            continue;
-          }
-        }
-
-        if (triedMethods.length > 0) {
-          this.logger.debug(`All tried methods: ${triedMethods.join(' | ')}`);
+        let verifyResult = tronWeb.trx.verifyMessageV2(message, cleanSignature);
+        
+        if (verifyResult && typeof verifyResult.then === 'function') {
+          verifyResult = await verifyResult;
         }
 
         if (!verifyResult) {
-          this.logger.warn(`TRON signature verification returned false - address: ${address}, messageLength: ${message.length}, signatureLength: ${signature.length}`);
+          this.logger.warn(`TRON signature verification returned false`);
           return false;
         }
 
-        this.logger.debug(`Processing recoveredAddress from verifyResult: ${verifyResult}`);
-        let recoveredAddress = verifyResult;
-        if (recoveredAddress && typeof recoveredAddress.then === 'function') {
-          this.logger.debug(`recoveredAddress is Promise, awaiting...`);
-          recoveredAddress = await recoveredAddress;
-          this.logger.debug(`Promise resolved to: ${recoveredAddress}`);
-        }
-        recoveredAddress = String(recoveredAddress);
-        this.logger.debug(`recoveredAddress (final): ${recoveredAddress}`);
+        const recoveredAddress = String(verifyResult).toLowerCase();
+        const providedAddress = address.toLowerCase();
 
-        const providedAddress = address;
-        this.logger.debug(`Provided address: ${providedAddress}`);
-
-        const recoveredAddressLower = recoveredAddress.toLowerCase();
-        const providedAddressLower = providedAddress.toLowerCase();
-
-        this.logger.log(`TRON address comparison (base58) - provided: ${providedAddressLower}, recovered: ${recoveredAddressLower}`);
-
-        let isValid = recoveredAddressLower === providedAddressLower;
+        const isValid = recoveredAddress === providedAddress;
 
         if (!isValid) {
-          this.logger.debug(`Base58 comparison failed, trying hex comparison...`);
-          let recoveredAddressHex = tronWeb.address.toHex(recoveredAddress);
-          if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
-            recoveredAddressHex = await recoveredAddressHex;
-          }
-          recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
-
-          let providedAddressHex = tronWeb.address.toHex(providedAddress);
-          if (providedAddressHex && typeof providedAddressHex.then === 'function') {
-            providedAddressHex = await providedAddressHex;
-          }
-          providedAddressHex = String(providedAddressHex).toLowerCase();
-
-          this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
-          isValid = recoveredAddressHex === providedAddressHex;
-        }
-
-        if (!isValid) {
-          this.logger.warn(`TRON signature mismatch - provided: ${providedAddressLower}, recovered: ${recoveredAddressLower}`);
-        } else {
-          this.logger.log(`TRON signature verified successfully - address: ${address}`);
+          this.logger.warn(`TRON signature mismatch - provided: ${providedAddress}, recovered: ${recoveredAddress}`);
         }
 
         return isValid;
