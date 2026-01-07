@@ -81,40 +81,43 @@ export class WalletVerificationService {
           this.logger.debug(`Removed 0x prefix from signature: ${cleanSignature.substring(0, 20)}...`);
         }
 
+        this.logger.debug(`Original message: "${message}"`);
+        this.logger.debug(`Message length: ${message.length}`);
+
+        const messageHexNoPrefix = Buffer.from(message).toString('hex');
+        this.logger.debug(`Message hex (no prefix): ${messageHexNoPrefix.substring(0, 50)}... (length: ${messageHexNoPrefix.length})`);
+
         const messageWithPrefix = `TRON Signed Message:\n${message}`;
-        this.logger.debug(`Message with TRON prefix: ${messageWithPrefix.substring(0, 60)}...`);
+        const messageHexWithPrefix = Buffer.from(messageWithPrefix).toString('hex');
+        this.logger.debug(`Message with prefix: "${messageWithPrefix.substring(0, 60)}..."`);
+        this.logger.debug(`Message hex (with prefix): ${messageHexWithPrefix.substring(0, 50)}... (length: ${messageHexWithPrefix.length})`);
 
-        const messageHex = Buffer.from(messageWithPrefix).toString('hex');
-        this.logger.debug(`Message converted to hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
-
-        this.logger.debug(`Trying verifyMessageV2 first (as signMessageV2 is used on frontend)`);
+        this.logger.debug(`Trying verifyMessageV2 first WITHOUT prefix (as signMessageV2 might not add prefix)`);
         let verifyResult;
         try {
           if (tronWeb.trx.verifyMessageV2) {
-            verifyResult = tronWeb.trx.verifyMessageV2(messageHex, cleanSignature);
-            this.logger.debug(`verifyMessageV2 returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+            verifyResult = tronWeb.trx.verifyMessageV2(messageHexNoPrefix, cleanSignature);
+            this.logger.debug(`verifyMessageV2 (no prefix) returned: ${verifyResult}`);
           } else {
-            this.logger.debug(`verifyMessageV2 not available, using verifyMessage`);
-            verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
-            this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+            verifyResult = tronWeb.trx.verifyMessage(messageHexNoPrefix, cleanSignature);
+            this.logger.debug(`verifyMessage (no prefix) returned: ${verifyResult}`);
           }
-        } catch (verifyError) {
-          const errorMsg = typeof verifyError === 'string' ? verifyError : (verifyError?.message || String(verifyError));
-          this.logger.warn(`verifyMessage(V2) failed with prefix, trying without prefix: ${errorMsg}`);
+        } catch (noPrefixError) {
+          const noPrefixErrorMsg = typeof noPrefixError === 'string' ? noPrefixError : (noPrefixError?.message || String(noPrefixError));
+          this.logger.warn(`verifyMessage(V2) failed without prefix: ${noPrefixErrorMsg}, trying with prefix...`);
           
-          const messageHexNoPrefix = Buffer.from(message).toString('hex');
-          this.logger.debug(`Trying without prefix, message hex: ${messageHexNoPrefix.substring(0, 50)}...`);
           try {
             if (tronWeb.trx.verifyMessageV2) {
-              verifyResult = tronWeb.trx.verifyMessageV2(messageHexNoPrefix, cleanSignature);
+              verifyResult = tronWeb.trx.verifyMessageV2(messageHexWithPrefix, cleanSignature);
+              this.logger.debug(`verifyMessageV2 (with prefix) returned: ${verifyResult}`);
             } else {
-              verifyResult = tronWeb.trx.verifyMessage(messageHexNoPrefix, cleanSignature);
+              verifyResult = tronWeb.trx.verifyMessage(messageHexWithPrefix, cleanSignature);
+              this.logger.debug(`verifyMessage (with prefix) returned: ${verifyResult}`);
             }
-            this.logger.debug(`verifyMessage(V2) without prefix returned: ${verifyResult}`);
-          } catch (noPrefixError) {
-            const noPrefixErrorMsg = typeof noPrefixError === 'string' ? noPrefixError : (noPrefixError?.message || String(noPrefixError));
-            this.logger.error(`verifyMessage(V2) also failed without prefix: ${noPrefixErrorMsg}`);
-            throw noPrefixError;
+          } catch (withPrefixError) {
+            const withPrefixErrorMsg = typeof withPrefixError === 'string' ? withPrefixError : (withPrefixError?.message || String(withPrefixError));
+            this.logger.error(`verifyMessage(V2) also failed with prefix: ${withPrefixErrorMsg}`);
+            throw withPrefixError;
           }
         }
 
