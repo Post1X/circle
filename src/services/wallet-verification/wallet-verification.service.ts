@@ -81,18 +81,41 @@ export class WalletVerificationService {
           this.logger.debug(`Removed 0x prefix from signature: ${cleanSignature.substring(0, 20)}...`);
         }
 
-        const messageHex = Buffer.from(message).toString('hex');
+        const messageWithPrefix = `TRON Signed Message:\n${message}`;
+        this.logger.debug(`Message with TRON prefix: ${messageWithPrefix.substring(0, 60)}...`);
+
+        const messageHex = Buffer.from(messageWithPrefix).toString('hex');
         this.logger.debug(`Message converted to hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
 
-        this.logger.debug(`Calling verifyMessage with hex message and signature`);
+        this.logger.debug(`Trying verifyMessageV2 first (as signMessageV2 is used on frontend)`);
         let verifyResult;
         try {
-          verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
-          this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+          if (tronWeb.trx.verifyMessageV2) {
+            verifyResult = tronWeb.trx.verifyMessageV2(messageHex, cleanSignature);
+            this.logger.debug(`verifyMessageV2 returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+          } else {
+            this.logger.debug(`verifyMessageV2 not available, using verifyMessage`);
+            verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
+            this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+          }
         } catch (verifyError) {
           const errorMsg = typeof verifyError === 'string' ? verifyError : (verifyError?.message || String(verifyError));
-          this.logger.error(`verifyMessage threw error: ${errorMsg}, stack: ${verifyError?.stack}`);
-          throw verifyError;
+          this.logger.warn(`verifyMessage(V2) failed with prefix, trying without prefix: ${errorMsg}`);
+          
+          const messageHexNoPrefix = Buffer.from(message).toString('hex');
+          this.logger.debug(`Trying without prefix, message hex: ${messageHexNoPrefix.substring(0, 50)}...`);
+          try {
+            if (tronWeb.trx.verifyMessageV2) {
+              verifyResult = tronWeb.trx.verifyMessageV2(messageHexNoPrefix, cleanSignature);
+            } else {
+              verifyResult = tronWeb.trx.verifyMessage(messageHexNoPrefix, cleanSignature);
+            }
+            this.logger.debug(`verifyMessage(V2) without prefix returned: ${verifyResult}`);
+          } catch (noPrefixError) {
+            const noPrefixErrorMsg = typeof noPrefixError === 'string' ? noPrefixError : (noPrefixError?.message || String(noPrefixError));
+            this.logger.error(`verifyMessage(V2) also failed without prefix: ${noPrefixErrorMsg}`);
+            throw noPrefixError;
+          }
         }
 
         if (!verifyResult) {
