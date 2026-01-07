@@ -72,33 +72,32 @@ export class WalletVerificationService {
         return false;
       }
 
+      this.logger.log(`Verifying TRON signature - address: ${address}, message: ${message.substring(0, 50)}..., signature: ${signature.substring(0, 20)}...`);
+
       const messageHex = Buffer.from(message).toString('hex');
+      this.logger.debug(`Message hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
+
       const verifyResult = tronWeb.trx.verifyMessage(messageHex, signature);
 
       if (!verifyResult) {
-        this.logger.warn(`TRON signature verification returned false`, {
-          address,
-          messageLength: message.length,
-          signatureLength: signature.length,
-        });
+        this.logger.warn(`TRON signature verification returned false - address: ${address}, messageLength: ${message.length}, signatureLength: ${signature.length}`);
         return false;
       }
 
-      const recoveredAddressHex = typeof verifyResult === 'string' 
-        ? verifyResult 
-        : tronWeb.address.fromHex(verifyResult);
+      this.logger.debug(`verifyResult type: ${typeof verifyResult}, value: ${verifyResult}`);
 
+      const recoveredAddressHex = verifyResult;
       const recoveredAddress = tronWeb.address.fromHex(recoveredAddressHex);
-      const normalizedAddress = tronWeb.address.toHex(address).toLowerCase();
-      const normalizedRecovered = tronWeb.address.toHex(recoveredAddress).toLowerCase();
+      const providedAddressHex = tronWeb.address.toHex(address);
 
-      const isValid = normalizedAddress === normalizedRecovered;
+      this.logger.log(`TRON address comparison - provided: ${address} (hex: ${providedAddressHex}), recovered: ${recoveredAddress} (hex: ${recoveredAddressHex})`);
+
+      const isValid = recoveredAddress.toLowerCase() === address.toLowerCase();
 
       if (!isValid) {
-        this.logger.warn(`TRON signature mismatch`, {
-          provided: normalizedAddress,
-          recovered: normalizedRecovered,
-        });
+        this.logger.warn(`TRON signature mismatch - provided: ${address}, recovered: ${recoveredAddress}, providedHex: ${providedAddressHex}, recoveredHex: ${recoveredAddressHex}`);
+      } else {
+        this.logger.log(`TRON signature verified successfully`);
       }
 
       return isValid;
