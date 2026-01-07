@@ -94,9 +94,9 @@ export class WalletVerificationService {
       const isValid = recoveredAddressHex === providedAddressHex;
 
       if (!isValid) {
-        this.logger.warn(`TRON signature mismatch - provided: ${address}, recovered: ${recoveredAddress}, providedHex: ${providedAddressHex}, recoveredHex: ${recoveredAddressHex}`);
+        this.logger.warn(`TRON signature mismatch - provided: ${address} (hex: ${providedAddressHex}), recovered hex: ${recoveredAddressHex}`);
       } else {
-        this.logger.log(`TRON signature verified successfully`);
+        this.logger.log(`TRON signature verified successfully - address: ${address}`);
       }
 
       return isValid;
