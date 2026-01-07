@@ -45,7 +45,13 @@ export class WalletVerificationService {
           throw new BadRequestException(`Unsupported network: ${network}`);
       }
     } catch (error) {
-      this.logger.error(`Signature verification failed: ${error.message}`);
+      this.logger.error(`Signature verification failed: ${error.message}`, {
+        stack: error.stack,
+        walletType,
+        address,
+        messageLength: message?.length,
+        signatureLength: signature?.length,
+      });
       return false;
     }
   }
@@ -61,17 +67,48 @@ export class WalletVerificationService {
         fullHost: 'https://api.trongrid.io',
       });
 
-      const messageHex = Buffer.from(message).toString('hex');
-      const recoveredAddress = tronWeb.address.fromHex(
-        tronWeb.trx.verifyMessage(messageHex, signature),
-      );
+      if (!tronWeb.isAddress(address)) {
+        this.logger.error(`Invalid TRON address: ${address}`);
+        return false;
+      }
 
-      return (
-        tronWeb.address.toHex(address).toLowerCase() ===
-        tronWeb.address.toHex(recoveredAddress).toLowerCase()
-      );
+      const messageHex = Buffer.from(message).toString('hex');
+      const verifyResult = tronWeb.trx.verifyMessage(messageHex, signature);
+
+      if (!verifyResult) {
+        this.logger.warn(`TRON signature verification returned false`, {
+          address,
+          messageLength: message.length,
+          signatureLength: signature.length,
+        });
+        return false;
+      }
+
+      const recoveredAddressHex = typeof verifyResult === 'string' 
+        ? verifyResult 
+        : tronWeb.address.fromHex(verifyResult);
+
+      const recoveredAddress = tronWeb.address.fromHex(recoveredAddressHex);
+      const normalizedAddress = tronWeb.address.toHex(address).toLowerCase();
+      const normalizedRecovered = tronWeb.address.toHex(recoveredAddress).toLowerCase();
+
+      const isValid = normalizedAddress === normalizedRecovered;
+
+      if (!isValid) {
+        this.logger.warn(`TRON signature mismatch`, {
+          provided: normalizedAddress,
+          recovered: normalizedRecovered,
+        });
+      }
+
+      return isValid;
     } catch (error) {
-      this.logger.error(`Tron signature verification error: ${error.message}`);
+      this.logger.error(`Tron signature verification error: ${error.message}`, {
+        stack: error.stack,
+        address,
+        messageLength: message?.length,
+        signatureLength: signature?.length,
+      });
       return false;
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Not } from 'typeorm';
 import { User } from '../../entities/user.entity';
@@ -14,6 +14,8 @@ import { randomUUID, randomBytes } from 'crypto';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -85,39 +87,94 @@ export class UsersService {
   }
 
   async createNonce(address: string): Promise<string> {
+    const normalizedAddress = this.normalizeAddress(address);
     const nonceValue = randomBytes(32).toString('hex');
     
-    await this.nonceRepository.update(
-      { address, used: false },
+    this.logger.log(`Creating nonce`, {
+      originalAddress: address,
+      normalizedAddress: normalizedAddress,
+      nonceValue: nonceValue,
+      nonceLength: nonceValue.length,
+    });
+
+    const updateResult = await this.nonceRepository.update(
+      { address: normalizedAddress, used: false },
       { used: true },
     );
+    this.logger.debug(`Marked old nonces as used`, {
+      affected: updateResult.affected,
+      address: normalizedAddress,
+    });
 
     const nonce = this.nonceRepository.create({
-      address,
+      address: normalizedAddress,
       nonce: nonceValue,
       used: false,
       created_at: new Date(),
     });
 
-    await this.nonceRepository.save(nonce);
+    const savedNonce = await this.nonceRepository.save(nonce);
+    this.logger.log(`Nonce created and saved - ID: ${savedNonce.id}, address: ${savedNonce.address}, saved: ${savedNonce.nonce.substring(0, 16)}... (length: ${savedNonce.nonce?.length}), returned: ${nonceValue.substring(0, 16)}... (length: ${nonceValue?.length}), match: ${savedNonce.nonce === nonceValue}`);
+
     return nonceValue;
   }
 
   async getNonce(address: string, nonceValue: string): Promise<Nonce | null> {
+    const normalizedAddress = this.normalizeAddress(address);
+    
+    this.logger.log(`Searching for nonce - original: ${address}, normalized: ${normalizedAddress}, nonce: ${nonceValue}, length: ${nonceValue?.length}`);
+
+    const allNoncesForAddress = await this.nonceRepository.find({
+      where: { address: normalizedAddress },
+      order: { created_at: 'DESC' },
+      take: 5,
+    });
+
+    if (allNoncesForAddress.length > 0) {
+      this.logger.log(`Found ${allNoncesForAddress.length} nonces for address ${normalizedAddress}: ${allNoncesForAddress.map(n => `[ID:${n.id} nonce:${n.nonce.substring(0, 16)}... used:${n.used}]`).join(', ')}`);
+    } else {
+      this.logger.warn(`No nonces found in DB for address: ${normalizedAddress}`);
+    }
+
+    this.logger.log(`Searching for nonce in DB - looking for: ${nonceValue.substring(0, 16)}... (length: ${nonceValue?.length})`);
+
     const nonce = await this.nonceRepository.findOne({
-      where: { address, nonce: nonceValue, used: false },
+      where: { address: normalizedAddress, nonce: nonceValue, used: false },
     });
 
     if (!nonce) {
+      const nonceWithUsed = await this.nonceRepository.findOne({
+        where: { address: normalizedAddress, nonce: nonceValue },
+      });
+
+      const allNoncesDetails = allNoncesForAddress.map(n => 
+        `ID:${n.id} nonce:${n.nonce.substring(0, 16)}... length:${n.nonce?.length} used:${n.used} matches:${n.nonce === nonceValue}`
+      ).join(' | ');
+      
+      this.logger.warn(`Nonce not found or already used - searching: ${nonceValue.substring(0, 16)}... (length: ${nonceValue?.length}), exists: ${!!nonceWithUsed}, used: ${nonceWithUsed?.used}, all nonces: ${allNoncesDetails}`);
       return null;
     }
 
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     if (nonce.created_at < fiveMinutesAgo) {
+      this.logger.warn(`Nonce expired`, {
+        address: normalizedAddress,
+        nonceId: nonce.id,
+        createdAt: nonce.created_at,
+        fiveMinutesAgo: fiveMinutesAgo,
+        ageMinutes: (Date.now() - nonce.created_at.getTime()) / 1000 / 60,
+      });
       nonce.used = true;
       await this.nonceRepository.save(nonce);
       return null;
     }
+
+    this.logger.log(`Nonce found and valid`, {
+      nonceId: nonce.id,
+      address: normalizedAddress,
+      createdAt: nonce.created_at,
+      ageSeconds: (Date.now() - nonce.created_at.getTime()) / 1000,
+    });
 
     return nonce;
   }
@@ -126,23 +183,49 @@ export class UsersService {
     address: string,
     nonceValue: string,
   ): Promise<'used' | 'expired' | 'not_found'> {
+    const normalizedAddress = this.normalizeAddress(address);
+    
+    this.logger.log(`Checking nonce status - original: ${address}, normalized: ${normalizedAddress}, nonce: ${nonceValue.substring(0, 16)}... (length: ${nonceValue?.length})`);
+
     const nonce = await this.nonceRepository.findOne({
-      where: { address, nonce: nonceValue },
+      where: { address: normalizedAddress, nonce: nonceValue },
     });
 
     if (!nonce) {
+      this.logger.warn(`Nonce not found in checkNonceStatus - address: ${normalizedAddress}, nonce: ${nonceValue.substring(0, 16)}... (length: ${nonceValue?.length})`);
       return 'not_found';
     }
 
+    this.logger.log(`Nonce found in checkNonceStatus - ID: ${nonce.id}, address: ${normalizedAddress}, used: ${nonce.used}, createdAt: ${nonce.created_at}`);
+
     if (nonce.used) {
+      this.logger.warn(`Nonce already used`, {
+        nonceId: nonce.id,
+        address: normalizedAddress,
+        createdAt: nonce.created_at,
+      });
       return 'used';
     }
 
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     if (nonce.created_at < fiveMinutesAgo) {
+      const ageMinutes = (Date.now() - nonce.created_at.getTime()) / 1000 / 60;
+      this.logger.warn(`Nonce expired`, {
+        nonceId: nonce.id,
+        address: normalizedAddress,
+        createdAt: nonce.created_at,
+        fiveMinutesAgo: fiveMinutesAgo,
+        ageMinutes: ageMinutes,
+      });
       return 'expired';
     }
 
+    this.logger.warn(`Nonce status check returned 'not_found' but nonce exists and is valid`, {
+      nonceId: nonce.id,
+      address: normalizedAddress,
+      used: nonce.used,
+      createdAt: nonce.created_at,
+    });
     return 'not_found';
   }
 
@@ -372,6 +455,58 @@ export class UsersService {
     const accessToken = await this.authService.createAccessToken(user.user_id);
 
     return { user, accessToken };
+  }
+
+  private normalizeAddress(address: string): string {
+    if (!address) {
+      this.logger.warn(`Empty address provided for normalization`);
+      return address;
+    }
+
+    try {
+      const TronWeb = require('tronweb');
+      const tronWeb = new TronWeb({
+        fullHost: 'https://api.trongrid.io',
+      });
+
+      const isBase58 = tronWeb.isAddress(address);
+      if (isBase58) {
+        this.logger.debug(`Address is already in base58 format`, {
+          original: address,
+          normalized: address,
+        });
+        return address;
+      }
+
+      if (address.startsWith('0x') || address.startsWith('41')) {
+        const hexAddress = address.startsWith('0x') ? address.slice(2) : address;
+        if (hexAddress.length === 64 && hexAddress.startsWith('41')) {
+          const base58Address = tronWeb.address.fromHex(hexAddress);
+          if (tronWeb.isAddress(base58Address)) {
+            this.logger.debug(`Converted hex address to base58`, {
+              original: address,
+              hex: hexAddress,
+              normalized: base58Address,
+            });
+            return base58Address;
+          }
+        }
+      }
+
+      this.logger.warn(`Could not normalize address, returning as-is`, {
+        original: address,
+        length: address.length,
+        startsWith0x: address.startsWith('0x'),
+        startsWith41: address.startsWith('41'),
+      });
+      return address;
+    } catch (error) {
+      this.logger.error(`Failed to normalize address: ${address}`, {
+        error: error.message,
+        stack: error.stack,
+      });
+      return address;
+    }
   }
 }
 

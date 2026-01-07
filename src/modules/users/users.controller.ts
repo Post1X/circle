@@ -12,6 +12,7 @@ import {
   UnauthorizedException,
   HttpException,
   ParseIntPipe,
+  Logger,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
@@ -38,6 +39,8 @@ import * as crypto from 'crypto';
 
 @Controller('api/users')
 export class UsersController {
+  private readonly logger = new Logger(UsersController.name);
+
   constructor(
     private usersService: UsersService,
     private authService: AuthService,
@@ -155,13 +158,19 @@ export class UsersController {
 
   @Post('wallet-connect')
   async walletConnect(@Body() dto: WalletConnectDto) {
+    this.logger.log(`Wallet connect request - address: ${dto.address}, nonce: ${dto.nonce}, nonceLength: ${dto.nonce?.length}, walletType: ${dto.wallet_type}`);
+
     const nonce = await this.usersService.getNonce(dto.address, dto.nonce);
     if (!nonce) {
-      // Проверяем, был ли nonce использован или истек
+      this.logger.warn(`Nonce not found, checking status - address: ${dto.address}, nonce: ${dto.nonce.substring(0, 16)}...`);
+
       const usedNonce = await this.usersService.checkNonceStatus(
         dto.address,
         dto.nonce,
       );
+      
+      this.logger.warn(`Nonce status check result - address: ${dto.address}, status: ${usedNonce}`);
+
       if (usedNonce === 'used') {
         throw new UnauthorizedException('Nonce has already been used');
       }

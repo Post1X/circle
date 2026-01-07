@@ -33,6 +33,20 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor(logger));
   app.useGlobalFilters(new HttpExceptionFilter(logger));
 
+  process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    logger.error(`Unhandled Rejection: ${reason?.message || reason}`, {
+      reason: reason?.stack || reason,
+      promise,
+    });
+  });
+
+  process.on('uncaughtException', (error: Error) => {
+    logger.error(`Uncaught Exception: ${error.message}`, {
+      stack: error.stack,
+    });
+    process.exit(1);
+  });
+
   await app.listen(8000);
   logger.log('Application is running on: http://0.0.0.0:8000', 'Bootstrap');
 }
