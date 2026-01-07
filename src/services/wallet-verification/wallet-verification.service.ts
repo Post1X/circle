@@ -84,41 +84,94 @@ export class WalletVerificationService {
         this.logger.debug(`Original message: "${message}"`);
         this.logger.debug(`Message length: ${message.length}`);
 
-        const messageHexNoPrefix = Buffer.from(message).toString('hex');
-        this.logger.debug(`Message hex (no prefix): ${messageHexNoPrefix.substring(0, 50)}... (length: ${messageHexNoPrefix.length})`);
-
-        const messageWithPrefix = `TRON Signed Message:\n${message}`;
-        const messageHexWithPrefix = Buffer.from(messageWithPrefix).toString('hex');
-        this.logger.debug(`Message with prefix: "${messageWithPrefix.substring(0, 60)}..."`);
-        this.logger.debug(`Message hex (with prefix): ${messageHexWithPrefix.substring(0, 50)}... (length: ${messageHexWithPrefix.length})`);
-
-        this.logger.debug(`Trying verifyMessageV2 first WITHOUT prefix (as signMessageV2 might not add prefix)`);
         let verifyResult;
-        try {
-          if (tronWeb.trx.verifyMessageV2) {
-            verifyResult = tronWeb.trx.verifyMessageV2(messageHexNoPrefix, cleanSignature);
-            this.logger.debug(`verifyMessageV2 (no prefix) returned: ${verifyResult}`);
-          } else {
-            verifyResult = tronWeb.trx.verifyMessage(messageHexNoPrefix, cleanSignature);
-            this.logger.debug(`verifyMessage (no prefix) returned: ${verifyResult}`);
-          }
-        } catch (noPrefixError) {
-          const noPrefixErrorMsg = typeof noPrefixError === 'string' ? noPrefixError : (noPrefixError?.message || String(noPrefixError));
-          this.logger.warn(`verifyMessage(V2) failed without prefix: ${noPrefixErrorMsg}, trying with prefix...`);
+        let triedMethods = [];
+
+        const methods = [
+          {
+            name: 'verifyMessageV2 with string (no prefix)',
+            fn: () => tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(message, cleanSignature) : null,
+          },
+          {
+            name: 'verifyMessage with string (no prefix)',
+            fn: () => tronWeb.trx.verifyMessage(message, cleanSignature),
+          },
+          {
+            name: 'verifyMessageV2 with hex (no prefix)',
+            fn: () => {
+              const messageHex = Buffer.from(message).toString('hex');
+              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageHex, cleanSignature) : null;
+            },
+          },
+          {
+            name: 'verifyMessage with hex (no prefix)',
+            fn: () => {
+              const messageHex = Buffer.from(message).toString('hex');
+              return tronWeb.trx.verifyMessage(messageHex, cleanSignature);
+            },
+          },
+          {
+            name: 'verifyMessageV2 with string (with prefix)',
+            fn: () => {
+              const messageWithPrefix = `TRON Signed Message:\n${message}`;
+              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageWithPrefix, cleanSignature) : null;
+            },
+          },
+          {
+            name: 'verifyMessage with string (with prefix)',
+            fn: () => {
+              const messageWithPrefix = `TRON Signed Message:\n${message}`;
+              return tronWeb.trx.verifyMessage(messageWithPrefix, cleanSignature);
+            },
+          },
+          {
+            name: 'verifyMessageV2 with hex (with prefix)',
+            fn: () => {
+              const messageWithPrefix = `TRON Signed Message:\n${message}`;
+              const messageHex = Buffer.from(messageWithPrefix).toString('hex');
+              return tronWeb.trx.verifyMessageV2 ? tronWeb.trx.verifyMessageV2(messageHex, cleanSignature) : null;
+            },
+          },
+          {
+            name: 'verifyMessage with hex (with prefix)',
+            fn: () => {
+              const messageWithPrefix = `TRON Signed Message:\n${message}`;
+              const messageHex = Buffer.from(messageWithPrefix).toString('hex');
+              return tronWeb.trx.verifyMessage(messageHex, cleanSignature);
+            },
+          },
+        ];
+
+        for (const method of methods) {
+          if (!method.fn) continue;
           
           try {
-            if (tronWeb.trx.verifyMessageV2) {
-              verifyResult = tronWeb.trx.verifyMessageV2(messageHexWithPrefix, cleanSignature);
-              this.logger.debug(`verifyMessageV2 (with prefix) returned: ${verifyResult}`);
+            this.logger.debug(`Trying: ${method.name}`);
+            const result = method.fn();
+            
+            if (result && typeof result.then === 'function') {
+              verifyResult = await result;
             } else {
-              verifyResult = tronWeb.trx.verifyMessage(messageHexWithPrefix, cleanSignature);
-              this.logger.debug(`verifyMessage (with prefix) returned: ${verifyResult}`);
+              verifyResult = result;
             }
-          } catch (withPrefixError) {
-            const withPrefixErrorMsg = typeof withPrefixError === 'string' ? withPrefixError : (withPrefixError?.message || String(withPrefixError));
-            this.logger.error(`verifyMessage(V2) also failed with prefix: ${withPrefixErrorMsg}`);
-            throw withPrefixError;
+
+            if (verifyResult) {
+              this.logger.log(`SUCCESS with method: ${method.name}, recovered address: ${verifyResult}`);
+              triedMethods.push(`${method.name}: SUCCESS (${verifyResult})`);
+              break;
+            } else {
+              triedMethods.push(`${method.name}: returned false/null`);
+            }
+          } catch (error) {
+            const errorMsg = typeof error === 'string' ? error : (error?.message || String(error));
+            triedMethods.push(`${method.name}: ERROR (${errorMsg})`);
+            this.logger.debug(`${method.name} failed: ${errorMsg}`);
+            continue;
           }
+        }
+
+        if (triedMethods.length > 0) {
+          this.logger.debug(`All tried methods: ${triedMethods.join(' | ')}`);
         }
 
         if (!verifyResult) {
