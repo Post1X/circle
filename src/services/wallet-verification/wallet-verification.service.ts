@@ -77,7 +77,9 @@ export class WalletVerificationService {
       const messageHex = Buffer.from(message).toString('hex');
       this.logger.debug(`Message hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
 
+      this.logger.debug(`Calling verifyMessage...`);
       const verifyResult = tronWeb.trx.verifyMessage(messageHex, signature);
+      this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}`);
 
       if (!verifyResult) {
         this.logger.warn(`TRON signature verification returned false - address: ${address}, messageLength: ${message.length}, signatureLength: ${signature.length}`);
@@ -86,17 +88,23 @@ export class WalletVerificationService {
 
       this.logger.debug(`verifyResult: ${verifyResult}, type: ${typeof verifyResult}`);
 
+      this.logger.debug(`Processing recoveredAddressHex...`);
       let recoveredAddressHex = verifyResult;
       if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
+        this.logger.debug(`recoveredAddressHex is Promise, awaiting...`);
         recoveredAddressHex = await recoveredAddressHex;
       }
       recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
+      this.logger.debug(`recoveredAddressHex: ${recoveredAddressHex}`);
 
+      this.logger.debug(`Calling toHex for provided address...`);
       let providedAddressHex = tronWeb.address.toHex(address);
       if (providedAddressHex && typeof providedAddressHex.then === 'function') {
+        this.logger.debug(`providedAddressHex is Promise, awaiting...`);
         providedAddressHex = await providedAddressHex;
       }
       providedAddressHex = String(providedAddressHex).toLowerCase();
+      this.logger.debug(`providedAddressHex: ${providedAddressHex}`);
 
       this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
 
