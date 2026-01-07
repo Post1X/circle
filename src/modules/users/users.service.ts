@@ -71,6 +71,19 @@ export class UsersService {
     });
   }
 
+  async updateAvatarUrl(userId: string, avatarUrl: string): Promise<User> {
+    const user = await this.userRepository.findOne({
+      where: { user_id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.avatar_url = avatarUrl;
+    return await this.userRepository.save(user);
+  }
+
   async getUserByWalletAddress(address: string): Promise<User | null> {
     const wallet = await this.walletRepository.findOne({
       where: { address },

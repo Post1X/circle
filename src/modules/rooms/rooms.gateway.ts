@@ -13,6 +13,10 @@ import { RoomsService } from './rooms.service';
 import { UsersService } from '../users/users.service';
 import { PlayerCounterService } from '../../services/player-counter/player-counter.service';
 import { WithdrawalService } from '../withdrawal/withdrawal.service';
+import { CacheService } from '../../services/cache/cache.service';
+import { SkillStatsService } from '../../services/skill-stats/skill-stats.service';
+import { GameTrackerService } from '../../services/game-tracker/game-tracker.service';
+import { GameStatsService } from '../../services/game-stats/game-stats.service';
 import { User } from '../../entities/user.entity';
 
 interface ActiveConnection {
@@ -44,6 +48,10 @@ export class RoomsGateway
     private usersService: UsersService,
     private playerCounterService: PlayerCounterService,
     private withdrawalService: WithdrawalService,
+    private cacheService: CacheService,
+    private skillStatsService: SkillStatsService,
+    private gameTrackerService: GameTrackerService,
+    private gameStatsService: GameStatsService,
   ) {}
 
   handleConnection(client: Socket) {
@@ -247,39 +255,59 @@ export class RoomsGateway
     }
 
     const player = game.players.get(userId);
-    if (game.game_phase === 'super' && player && player.get_radius() <= 5) {
-      const lastChanceSuccess = game.check_last_chance(userId);
-      if (lastChanceSuccess) {
-        await set_changes(roomId, game);
-        client.emit('last_chance_activated', {
-          player_id: userId,
-          skill_type: skillType,
-          skill_costs_increased: game.skill_costs_increased,
-        });
-        return;
+    let isFree = false;
+
+    if (game.game_phase === 'super' && player && skillType === 'teleport') {
+      const lastChanceEligible = game.check_last_chance(userId);
+      if (lastChanceEligible) {
+        isFree = true;
       }
     }
 
-    const [success, message] = game.activate_skill(userId, skillType);
+    const balanceBefore = player?.money || 0;
+    const [success, errorCode, cost] = game.activate_skill(
+      userId,
+      skillType,
+      isFree,
+    );
+
     if (success) {
-      const skillCost = game.get_skill_cost(userId, skillType);
-      const player = game.players.get(userId);
-      const cooldowns = player
-        ? {
-            teleport: Math.round(Math.max(0, player.teleport_cooldown) * 10) / 10,
-            shield: Math.round(Math.max(0, player.shield_cooldown) * 10) / 10,
-            boost: Math.round(Math.max(0, player.boost_cooldown) * 10) / 10,
-          }
-        : null;
+      const playerAfter = game.players.get(userId);
+      if (!playerAfter) {
+        client.emit('skill_error', {
+          error_code: 'player_not_in_game',
+          message: 'Player not found',
+          skill_type: skillType,
+        });
+        return;
+      }
+
+      const cooldowns = {
+        teleport: Math.round(Math.max(0, playerAfter.teleport_cooldown) * 10) / 10,
+        shield: Math.round(Math.max(0, playerAfter.shield_cooldown) * 10) / 10,
+        boost: Math.round(Math.max(0, playerAfter.boost_cooldown) * 10) / 10,
+      };
 
       await set_changes(roomId, game);
+
+      await this.skillStatsService.recordSkillUsage(
+        userId,
+        roomId,
+        skillType,
+        cost,
+        balanceBefore,
+        playerAfter.money,
+        isFree,
+      );
 
       client.emit('skill_activated', {
         player_id: userId,
         skill_type: skillType,
-        skill_cost: skillCost,
-        skill_costs_increased: game.skill_costs_increased,
+        cost: cost,
+        new_balance: playerAfter.money,
+        skills_used: playerAfter.skills_used,
         cooldowns,
+        free_teleport_used: playerAfter.free_teleport_used,
       });
 
       this.server.to(roomId).emit('player_used_skill', {
@@ -288,10 +316,28 @@ export class RoomsGateway
       });
 
       const gameState = game.get_state();
-      client.emit('game_state', gameState);
+      this.server.to(roomId).emit('game_state', gameState);
     } else {
-      client.emit('skill_error', { message });
+      client.emit('skill_error', {
+        error_code: errorCode,
+        message: this.getErrorMessage(errorCode),
+        skill_type: skillType,
+      });
     }
+  }
+
+  private getErrorMessage(errorCode: string): string {
+    const messages: Record<string, string> = {
+      minimum_balance_required: 'Minimum balance of $1 required to use skills',
+      skill_limit_reached: 'Maximum skill uses (5) reached for this game',
+      skill_on_cooldown: 'Skill is on cooldown',
+      insufficient_balance: 'Insufficient balance to activate skill',
+      player_not_in_game: 'Player not in game',
+      game_not_active: 'Game is not active',
+      invalid_skill_type: 'Invalid skill type',
+      free_teleport_used: 'Free teleport already used',
+    };
+    return messages[errorCode] || 'Unknown error';
   }
 
   @SubscribeMessage('get_leaderboard')
@@ -331,11 +377,26 @@ export class RoomsGateway
 
       const exitType = data.exit_type;
 
+      const player = game.players.get(userId);
+      if (!player) {
+        client.emit('exit_error', { message: 'Player not found' });
+        return;
+      }
+
       if (exitType === 'early' && game.game_phase === 'start') {
         game.process_early_exit(userId);
         const amount = game.early_exits.get(userId) || 0;
 
         await this.withdrawalService.creditUserBalance(userId, amount);
+
+        await this.gameStatsService.savePlayerGameStats(
+          userId,
+          roomId,
+          player,
+          'early',
+          game.game_start_time,
+          null,
+        );
 
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
@@ -347,6 +408,15 @@ export class RoomsGateway
         const amount = game.super_exits.get(userId) || 0;
 
         await this.withdrawalService.creditUserBalance(userId, amount);
+
+        await this.gameStatsService.savePlayerGameStats(
+          userId,
+          roomId,
+          player,
+          'super',
+          game.game_start_time,
+          null,
+        );
 
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
@@ -360,6 +430,7 @@ export class RoomsGateway
         return;
       }
 
+      await this.gameTrackerService.removePlayerFromRoom(userId, roomId);
       await set_changes(roomId, game);
       await this.leaveRoomSocket(client, roomId);
     } catch (error) {
@@ -432,7 +503,11 @@ export class RoomsGateway
     try {
       await client.leave(roomId);
       const connection = this.activeConnections.get(client.id);
-      if (connection) {
+      if (connection && connection.user_id) {
+        await this.gameTrackerService.removePlayerFromRoom(
+          connection.user_id,
+          roomId,
+        );
         connection.room_id = null;
 
         const players = this.playersInRoom.get(roomId);
@@ -473,6 +548,7 @@ export class RoomsGateway
 
     for (const player of players) {
       game.add_player(player.user_id, player.username);
+      await this.gameTrackerService.setPlayerInRoom(player.user_id, roomId);
     }
 
     let lastPhase = game.game_phase;
@@ -494,7 +570,34 @@ export class RoomsGateway
         return;
       }
 
+      const playersBeforeUpdate = new Map(currentGame.players);
       currentGame.update();
+
+      const playersRemoved: string[] = [];
+      for (const [playerId, player] of playersBeforeUpdate.entries()) {
+        if (!currentGame.players.has(playerId)) {
+          playersRemoved.push(playerId);
+        }
+      }
+
+      for (const playerId of playersRemoved) {
+        const removedPlayer = playersBeforeUpdate.get(playerId);
+        if (removedPlayer) {
+          try {
+            await this.gameStatsService.savePlayerGameStats(
+              playerId,
+              roomId,
+              removedPlayer,
+              'death',
+              currentGame.game_start_time,
+              null,
+            );
+            await this.gameTrackerService.removePlayerFromRoom(playerId, roomId);
+          } catch (error) {
+            this.logger.error(`Failed to save stats for player ${playerId}: ${error.message}`);
+          }
+        }
+      }
 
       if (currentGame.game_phase !== lastPhase) {
         if (currentGame.game_phase === 'top10') {
@@ -517,14 +620,35 @@ export class RoomsGateway
           clearInterval(loop);
           
           currentGame.finalize_game();
+          const finalists = currentGame.finalists;
+          for (let i = 0; i < finalists.length; i++) {
+            const playerId = finalists[i];
+            const player = currentGame.players.get(playerId);
+            if (player) {
+              try {
+                await this.gameStatsService.savePlayerGameStats(
+                  playerId,
+                  roomId,
+                  player,
+                  'final',
+                  currentGame.game_start_time,
+                  i + 1,
+                );
+                await this.gameTrackerService.removePlayerFromRoom(playerId, roomId);
+              } catch (error) {
+                this.logger.error(`Failed to save stats for finalist ${playerId}: ${error.message}`);
+              }
+            }
+          }
+
           const results = {
             early_exits: Object.fromEntries(currentGame.early_exits),
             super_exits: Object.fromEntries(currentGame.super_exits),
-            finalists: currentGame.finalists,
+            finalists: finalists,
             bonus_fund: currentGame.bonus_fund,
             zone_fund: currentGame.zone_fund,
             final_winnings: Object.fromEntries(
-              currentGame.finalists.map((pid) => [
+              finalists.map((pid) => [
                 pid,
                 currentGame.players.get(pid)?.final_winnings || 0,
               ]),

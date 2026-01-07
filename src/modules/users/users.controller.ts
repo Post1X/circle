@@ -13,7 +13,12 @@ import {
   HttpException,
   ParseIntPipe,
   Logger,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '../../config/multer.config';
 import { UsersService } from './users.service';
 import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -84,6 +89,38 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async getMe(@CurrentUser() user: User): Promise<User> {
     return user;
+  }
+
+  @Post('avatar')
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('avatar', multerConfig))
+  @HttpCode(HttpStatus.OK)
+  async uploadAvatar(
+    @CurrentUser() user: User,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No file uploaded or invalid file type');
+    }
+
+    try {
+      const avatarUrl = `/static/avatars/${file.filename}`;
+      const updatedUser = await this.usersService.updateAvatarUrl(
+        user.user_id,
+        avatarUrl,
+      );
+
+      this.logger.log(`Avatar uploaded for user ${user.user_id}: ${avatarUrl}`);
+
+      return {
+        success: true,
+        avatar_url: updatedUser.avatar_url,
+        message: 'Avatar uploaded successfully',
+      };
+    } catch (error) {
+      this.logger.error(`Failed to upload avatar for user ${user.user_id}: ${error.message}`);
+      throw new BadRequestException('Failed to upload avatar');
+    }
   }
 
   @Patch('username')

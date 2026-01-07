@@ -257,45 +257,30 @@ export class Game {
       return false;
     }
 
-    if (this.last_chance_used.has(player_id)) {
+    const player = this.players.get(player_id);
+    if (!player || player.free_teleport_used) {
       return false;
     }
 
     const super_game_time = Date.now() / 1000 - this.super_game_start_time;
-    if (super_game_time < 120 || super_game_time > 180) {
+    const time_remaining = this.super_game_duration - super_game_time;
+    if (time_remaining > 180 || time_remaining < 120) {
       return false;
     }
 
-    if (!this.players.has(player_id)) {
-      return false;
-    }
-
-    const player = this.players.get(player_id)!;
     if (player.money >= 5) {
       return false;
     }
-
-    player.activate_teleport();
-    this.last_chance_used.set(player_id, true);
-    this.skill_costs_increased = true;
 
     return true;
   }
 
   get_skill_cost_percentage(player_id: string, skill_type: string): number {
-    const base_costs: Record<string, number> = {
-      teleport: 15.0,
-      shield: 10.0,
-      boost: 5.0,
-    };
-
-    let base_cost = base_costs[skill_type] || 0;
-
-    if (this.skill_costs_increased) {
-      base_cost += 5.0;
+    const player = this.players.get(player_id);
+    if (!player) {
+      return 0;
     }
-
-    return base_cost;
+    return player.get_skill_cost_percentage(skill_type) * 100;
   }
 
   finalize_game(): void {
@@ -461,32 +446,61 @@ export class Game {
     }
   }
 
-  activate_skill(player_id: string, skill_type: string): [boolean, string] {
+  activate_skill(
+    player_id: string,
+    skill_type: string,
+    is_free: boolean = false,
+  ): [boolean, string, number] {
     const player = this.players.get(player_id);
     if (!player) {
-      return [false, 'Player not found'];
+      return [false, 'player_not_in_game', 0];
+    }
+
+    if (this.game_phase === GamePhases.END || player.to_remove) {
+      return [false, 'game_not_active', 0];
+    }
+
+    if (!['teleport', 'shield', 'boost'].includes(skill_type)) {
+      return [false, 'invalid_skill_type', 0];
     }
 
     const [can_use, message] = player.can_use_skill(skill_type);
     if (!can_use) {
-      return [false, message];
+      return [false, message, 0];
+    }
+
+    let cost = 0;
+    if (!is_free) {
+      cost = player.get_skill_cost_amount(skill_type);
+
+      if (player.money < cost) {
+        return [false, 'insufficient_balance', cost];
+      }
+
+      player.money -= cost;
+      this.bonus_fund += cost;
     }
 
     if (skill_type === 'teleport') {
       player.activate_teleport();
+      if (is_free) {
+        player.free_teleport_used = true;
+      }
     } else if (skill_type === 'shield') {
       player.activate_shield();
     } else if (skill_type === 'boost') {
       player.activate_speed_boost();
-    } else {
-      return [false, 'Unknown skill type'];
     }
 
-    return [true, `${skill_type.charAt(0).toUpperCase() + skill_type.slice(1)} activated`];
+    return [true, 'OK', cost];
   }
 
   get_skill_cost(player_id: string, skill_type: string): number {
-    return this.get_skill_cost_percentage(player_id, skill_type);
+    const player = this.players.get(player_id);
+    if (!player) {
+      return 0;
+    }
+    return player.get_skill_cost_amount(skill_type);
   }
 
   update(): void {

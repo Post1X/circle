@@ -12,6 +12,7 @@ export class Player {
 
   skills_used: number = 0;
   max_skills_per_game: number = 5;
+  free_teleport_used: boolean = false;
 
   shield_active: boolean = false;
   shield_end_time: number = 0;
@@ -149,25 +150,20 @@ export class Player {
   }
 
   can_use_skill(skill_type: string): [boolean, string] {
+    if (this.money < 1.0) {
+      return [false, 'minimum_balance_required'];
+    }
+
     if (this.skills_used >= this.max_skills_per_game) {
-      return [false, 'Max skills per game reached'];
+      return [false, 'skill_limit_reached'];
     }
 
     if (skill_type === 'teleport' && this.teleport_cooldown > 0) {
-      return [
-        false,
-        `Teleport on cooldown: ${this.teleport_cooldown.toFixed(1)}s`,
-      ];
+      return [false, 'skill_on_cooldown'];
     } else if (skill_type === 'shield' && this.shield_cooldown > 0) {
-      return [
-        false,
-        `Shield on cooldown: ${this.shield_cooldown.toFixed(1)}s`,
-      ];
+      return [false, 'skill_on_cooldown'];
     } else if (skill_type === 'boost' && this.boost_cooldown > 0) {
-      return [
-        false,
-        `Boost on cooldown: ${this.boost_cooldown.toFixed(1)}s`,
-      ];
+      return [false, 'skill_on_cooldown'];
     }
 
     return [true, 'OK'];
@@ -196,10 +192,53 @@ export class Player {
   }
 
   get_skill_cost_percentage(skill_type: string): number {
-    if (skill_type === 'teleport') return 0.15;
-    if (skill_type === 'shield') return 0.1;
-    if (skill_type === 'boost') return 0.05;
-    return 0;
+    const base_costs: Record<string, number> = {
+      teleport: 0.15,
+      shield: 0.1,
+      boost: 0.05,
+    };
+
+    let base_cost = base_costs[skill_type] || 0;
+
+    if (this.free_teleport_used) {
+      base_cost += 0.05;
+    }
+
+    return base_cost;
+  }
+
+  get_skill_cost_amount(skill_type: string): number {
+    const percentage = this.get_skill_cost_percentage(skill_type);
+    return this.money * percentage;
+  }
+
+  reset_for_new_game(): void {
+    this.skills_used = 0;
+    this.free_teleport_used = false;
+
+    this.shield_active = false;
+    this.shield_end_time = 0;
+    this.speed_boost_active = false;
+    this.speed_boost_end_time = 0;
+    this.teleport_effect_time = 0;
+
+    this.teleport_cooldown = 0;
+    this.shield_cooldown = 0;
+    this.boost_cooldown = 0;
+
+    this.outside_zone_damage = 0;
+    this.last_zone_damage_time = 0;
+
+    this.in_bonus_zone = false;
+    this.current_bonus_multiplier = 1;
+    this.bonus_zone_collected = 0;
+
+    this.final_winnings = 0;
+
+    this.target_x = null;
+    this.target_y = null;
+
+    this.to_remove = false;
   }
 }
 
