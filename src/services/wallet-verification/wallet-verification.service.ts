@@ -123,40 +123,46 @@ export class WalletVerificationService {
           return false;
         }
 
-        this.logger.debug(`Processing recoveredAddressHex from verifyResult: ${verifyResult}`);
-        let recoveredAddressHex = verifyResult;
-        if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
-          this.logger.debug(`recoveredAddressHex is Promise, awaiting...`);
-          recoveredAddressHex = await recoveredAddressHex;
-          this.logger.debug(`Promise resolved to: ${recoveredAddressHex}`);
+        this.logger.debug(`Processing recoveredAddress from verifyResult: ${verifyResult}`);
+        let recoveredAddress = verifyResult;
+        if (recoveredAddress && typeof recoveredAddress.then === 'function') {
+          this.logger.debug(`recoveredAddress is Promise, awaiting...`);
+          recoveredAddress = await recoveredAddress;
+          this.logger.debug(`Promise resolved to: ${recoveredAddress}`);
         }
-        recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
-        this.logger.debug(`recoveredAddressHex (final): ${recoveredAddressHex}`);
+        recoveredAddress = String(recoveredAddress);
+        this.logger.debug(`recoveredAddress (final): ${recoveredAddress}`);
 
-        this.logger.debug(`Calling toHex for provided address: ${address}`);
-        let providedAddressHex;
-        try {
-          providedAddressHex = tronWeb.address.toHex(address);
-          this.logger.debug(`toHex returned, type: ${typeof providedAddressHex}, value: ${providedAddressHex}`);
-        } catch (toHexError) {
-          this.logger.error(`toHex threw error: ${toHexError?.message || toHexError}, stack: ${toHexError?.stack}`);
-          throw toHexError;
-        }
+        const providedAddress = address;
+        this.logger.debug(`Provided address: ${providedAddress}`);
 
-        if (providedAddressHex && typeof providedAddressHex.then === 'function') {
-          this.logger.debug(`providedAddressHex is Promise, awaiting...`);
-          providedAddressHex = await providedAddressHex;
-          this.logger.debug(`Promise resolved to: ${providedAddressHex}`);
-        }
-        providedAddressHex = String(providedAddressHex).toLowerCase();
-        this.logger.debug(`providedAddressHex (final): ${providedAddressHex}`);
+        const recoveredAddressLower = recoveredAddress.toLowerCase();
+        const providedAddressLower = providedAddress.toLowerCase();
 
-        this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
+        this.logger.log(`TRON address comparison (base58) - provided: ${providedAddressLower}, recovered: ${recoveredAddressLower}`);
 
-        const isValid = recoveredAddressHex === providedAddressHex;
+        let isValid = recoveredAddressLower === providedAddressLower;
 
         if (!isValid) {
-          this.logger.warn(`TRON signature mismatch - provided: ${address} (hex: ${providedAddressHex}), recovered hex: ${recoveredAddressHex}`);
+          this.logger.debug(`Base58 comparison failed, trying hex comparison...`);
+          let recoveredAddressHex = tronWeb.address.toHex(recoveredAddress);
+          if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
+            recoveredAddressHex = await recoveredAddressHex;
+          }
+          recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
+
+          let providedAddressHex = tronWeb.address.toHex(providedAddress);
+          if (providedAddressHex && typeof providedAddressHex.then === 'function') {
+            providedAddressHex = await providedAddressHex;
+          }
+          providedAddressHex = String(providedAddressHex).toLowerCase();
+
+          this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
+          isValid = recoveredAddressHex === providedAddressHex;
+        }
+
+        if (!isValid) {
+          this.logger.warn(`TRON signature mismatch - provided: ${providedAddressLower}, recovered: ${recoveredAddressLower}`);
         } else {
           this.logger.log(`TRON signature verified successfully - address: ${address}`);
         }
