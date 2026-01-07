@@ -81,17 +81,30 @@ export class WalletVerificationService {
           this.logger.debug(`Removed 0x prefix from signature: ${cleanSignature.substring(0, 20)}...`);
         }
 
-        const messageHex = Buffer.from(message).toString('hex');
-        this.logger.debug(`Message hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
-
-        this.logger.debug(`Calling verifyMessage with messageHex: ${messageHex.substring(0, 20)}..., signature: ${cleanSignature.substring(0, 20)}...`);
+        this.logger.debug(`Trying verifyMessage with original message string (as TronLink signs it)`);
         let verifyResult;
         try {
-          verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
-          this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+          verifyResult = tronWeb.trx.verifyMessage(message, cleanSignature);
+          this.logger.debug(`verifyMessage (string) returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
         } catch (verifyError) {
-          this.logger.error(`verifyMessage threw error: ${verifyError?.message || verifyError}, stack: ${verifyError?.stack}`);
-          throw verifyError;
+          const errorMsg = typeof verifyError === 'string' ? verifyError : (verifyError?.message || String(verifyError));
+          if (errorMsg.includes('Signature does not match') || errorMsg.includes('does not match')) {
+            this.logger.warn(`verifyMessage (string) failed: ${errorMsg}, trying with hex message...`);
+            
+            const messageHex = Buffer.from(message).toString('hex');
+            this.logger.debug(`Trying verifyMessage with hex message: ${messageHex.substring(0, 20)}...`);
+            try {
+              verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
+              this.logger.debug(`verifyMessage (hex) returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+            } catch (hexError) {
+              const hexErrorMsg = typeof hexError === 'string' ? hexError : (hexError?.message || String(hexError));
+              this.logger.error(`verifyMessage (hex) also failed: ${hexErrorMsg}`);
+              throw hexError;
+            }
+          } else {
+            this.logger.error(`verifyMessage threw error: ${errorMsg}, stack: ${verifyError?.stack}`);
+            throw verifyError;
+          }
         }
 
         if (!verifyResult) {
