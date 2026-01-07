@@ -74,55 +74,85 @@ export class WalletVerificationService {
 
       this.logger.log(`Verifying TRON signature - address: ${address}, message: ${message.substring(0, 50)}..., signature: ${signature.substring(0, 20)}...`);
 
-      const messageHex = Buffer.from(message).toString('hex');
-      this.logger.debug(`Message hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
+      try {
+        let cleanSignature = signature;
+        if (signature.startsWith('0x')) {
+          cleanSignature = signature.slice(2);
+          this.logger.debug(`Removed 0x prefix from signature: ${cleanSignature.substring(0, 20)}...`);
+        }
 
-      this.logger.debug(`Calling verifyMessage...`);
-      const verifyResult = tronWeb.trx.verifyMessage(messageHex, signature);
-      this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}`);
+        const messageHex = Buffer.from(message).toString('hex');
+        this.logger.debug(`Message hex: ${messageHex.substring(0, 50)}... (length: ${messageHex.length})`);
 
-      if (!verifyResult) {
-        this.logger.warn(`TRON signature verification returned false - address: ${address}, messageLength: ${message.length}, signatureLength: ${signature.length}`);
-        return false;
+        this.logger.debug(`Calling verifyMessage with messageHex: ${messageHex.substring(0, 20)}..., signature: ${cleanSignature.substring(0, 20)}...`);
+        let verifyResult;
+        try {
+          verifyResult = tronWeb.trx.verifyMessage(messageHex, cleanSignature);
+          this.logger.debug(`verifyMessage returned, type: ${typeof verifyResult}, value: ${verifyResult}`);
+        } catch (verifyError) {
+          this.logger.error(`verifyMessage threw error: ${verifyError?.message || verifyError}, stack: ${verifyError?.stack}`);
+          throw verifyError;
+        }
+
+        if (!verifyResult) {
+          this.logger.warn(`TRON signature verification returned false - address: ${address}, messageLength: ${message.length}, signatureLength: ${signature.length}`);
+          return false;
+        }
+
+        this.logger.debug(`Processing recoveredAddressHex from verifyResult: ${verifyResult}`);
+        let recoveredAddressHex = verifyResult;
+        if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
+          this.logger.debug(`recoveredAddressHex is Promise, awaiting...`);
+          recoveredAddressHex = await recoveredAddressHex;
+          this.logger.debug(`Promise resolved to: ${recoveredAddressHex}`);
+        }
+        recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
+        this.logger.debug(`recoveredAddressHex (final): ${recoveredAddressHex}`);
+
+        this.logger.debug(`Calling toHex for provided address: ${address}`);
+        let providedAddressHex;
+        try {
+          providedAddressHex = tronWeb.address.toHex(address);
+          this.logger.debug(`toHex returned, type: ${typeof providedAddressHex}, value: ${providedAddressHex}`);
+        } catch (toHexError) {
+          this.logger.error(`toHex threw error: ${toHexError?.message || toHexError}, stack: ${toHexError?.stack}`);
+          throw toHexError;
+        }
+
+        if (providedAddressHex && typeof providedAddressHex.then === 'function') {
+          this.logger.debug(`providedAddressHex is Promise, awaiting...`);
+          providedAddressHex = await providedAddressHex;
+          this.logger.debug(`Promise resolved to: ${providedAddressHex}`);
+        }
+        providedAddressHex = String(providedAddressHex).toLowerCase();
+        this.logger.debug(`providedAddressHex (final): ${providedAddressHex}`);
+
+        this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
+
+        const isValid = recoveredAddressHex === providedAddressHex;
+
+        if (!isValid) {
+          this.logger.warn(`TRON signature mismatch - provided: ${address} (hex: ${providedAddressHex}), recovered hex: ${recoveredAddressHex}`);
+        } else {
+          this.logger.log(`TRON signature verified successfully - address: ${address}`);
+        }
+
+        return isValid;
+      } catch (innerError) {
+        this.logger.error(`Error in TRON signature verification inner logic: ${innerError?.message || innerError}, type: ${typeof innerError}, stack: ${innerError?.stack}`);
+        throw innerError;
       }
-
-      this.logger.debug(`verifyResult: ${verifyResult}, type: ${typeof verifyResult}`);
-
-      this.logger.debug(`Processing recoveredAddressHex...`);
-      let recoveredAddressHex = verifyResult;
-      if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
-        this.logger.debug(`recoveredAddressHex is Promise, awaiting...`);
-        recoveredAddressHex = await recoveredAddressHex;
-      }
-      recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
-      this.logger.debug(`recoveredAddressHex: ${recoveredAddressHex}`);
-
-      this.logger.debug(`Calling toHex for provided address...`);
-      let providedAddressHex = tronWeb.address.toHex(address);
-      if (providedAddressHex && typeof providedAddressHex.then === 'function') {
-        this.logger.debug(`providedAddressHex is Promise, awaiting...`);
-        providedAddressHex = await providedAddressHex;
-      }
-      providedAddressHex = String(providedAddressHex).toLowerCase();
-      this.logger.debug(`providedAddressHex: ${providedAddressHex}`);
-
-      this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
-
-      const isValid = recoveredAddressHex === providedAddressHex;
-
-      if (!isValid) {
-        this.logger.warn(`TRON signature mismatch - provided: ${address} (hex: ${providedAddressHex}), recovered hex: ${recoveredAddressHex}`);
-      } else {
-        this.logger.log(`TRON signature verified successfully - address: ${address}`);
-      }
-
-      return isValid;
     } catch (error) {
-      this.logger.error(`Tron signature verification error: ${error.message}`, {
-        stack: error.stack,
+      const errorMessage = error?.message || error?.toString() || String(error) || 'Unknown error';
+      const errorStack = error?.stack || 'No stack trace';
+      this.logger.error(`Tron signature verification error: ${errorMessage}`, {
+        errorType: typeof error,
+        errorConstructor: error?.constructor?.name,
+        stack: errorStack,
         address,
         messageLength: message?.length,
         signatureLength: signature?.length,
+        fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
       });
       return false;
     }
