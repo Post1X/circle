@@ -14,6 +14,7 @@ aiohappyeyeballs==2.6.1
 aiohttp==3.12.13
 aiosignal==1.4.0
 alembic==1.16.2
+psycopg2-binary==2.9.9
 annotated-types==0.7.0
 anyio==4.9.0
 async-timeout==5.0.1
