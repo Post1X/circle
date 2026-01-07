@@ -456,7 +456,7 @@ export class Game {
       return [false, 'player_not_in_game', 0];
     }
 
-    if (this.game_phase === GamePhases.END || player.to_remove) {
+    if (this.game_phase === GamePhases.FINISHED || player.to_remove) {
       return [false, 'game_not_active', 0];
     }
 
