@@ -86,8 +86,17 @@ export class WalletVerificationService {
 
       this.logger.debug(`verifyResult: ${verifyResult}, type: ${typeof verifyResult}`);
 
-      const recoveredAddressHex = String(verifyResult).toLowerCase();
-      const providedAddressHex = tronWeb.address.toHex(address).toLowerCase();
+      let recoveredAddressHex = verifyResult;
+      if (recoveredAddressHex && typeof recoveredAddressHex.then === 'function') {
+        recoveredAddressHex = await recoveredAddressHex;
+      }
+      recoveredAddressHex = String(recoveredAddressHex).toLowerCase();
+
+      let providedAddressHex = tronWeb.address.toHex(address);
+      if (providedAddressHex && typeof providedAddressHex.then === 'function') {
+        providedAddressHex = await providedAddressHex;
+      }
+      providedAddressHex = String(providedAddressHex).toLowerCase();
 
       this.logger.log(`TRON address comparison (hex) - provided: ${providedAddressHex}, recovered: ${recoveredAddressHex}`);
 
