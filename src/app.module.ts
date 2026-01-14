@@ -44,7 +44,7 @@ import { HotWalletInitModule } from './services/hot-wallet-init/hot-wallet-init.
       inject: [AppConfigService],
     }),
     ServeStaticModule.forRoot({
-      rootPath: join(__dirname, '..', 'static'),
+      rootPath: join(process.cwd(), 'static'),
       serveRoot: '/static',
     }),
     DatabaseModule,
