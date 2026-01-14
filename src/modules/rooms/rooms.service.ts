@@ -23,6 +23,7 @@ export class RoomsService {
       max_players: maxPlayers,
       status: 'waiting',
       players: 0,
+      created_at: new Date(),
     });
 
     return await this.gameRoomRepository.save(room);
