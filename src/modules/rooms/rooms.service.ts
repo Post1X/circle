@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GameRoom } from '../../entities/game-room.entity';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class RoomsService {
@@ -16,6 +17,7 @@ export class RoomsService {
     maxPlayers: number,
   ): Promise<GameRoom> {
     const room = this.gameRoomRepository.create({
+      room_id: randomUUID(),
       entry_fee: entryFee,
       min_players: minPlayers,
       max_players: maxPlayers,
