@@ -685,3 +685,4 @@ python -m alembic upgrade head
 2. Баланс актуален?
 3. Правильный тип навыка?
 
+

@@ -122,10 +122,17 @@ export class RoomsGateway
         return;
       }
 
+      const entryFee = data.entry_fee !== undefined && data.entry_fee !== null 
+        ? Math.max(0, Number(data.entry_fee)) 
+        : 0;
+      
+      const minPlayers = data.min_players || 2;
+      const maxPlayers = data.max_players || 50;
+
       const room = await this.roomsService.createRoom(
-        data.entry_fee || 0,
-        data.min_players || 20,
-        data.max_players || 100,
+        entryFee,
+        minPlayers,
+        maxPlayers,
       );
 
       client.emit('room_created', {
@@ -300,7 +307,7 @@ export class RoomsGateway
         isFree,
       );
 
-      client.emit('skill_activated', {
+      const skillActivatedData: any = {
         player_id: userId,
         skill_type: skillType,
         cost: cost,
@@ -308,7 +315,22 @@ export class RoomsGateway
         skills_used: playerAfter.skills_used,
         cooldowns,
         free_teleport_used: playerAfter.free_teleport_used,
-      });
+      };
+
+      if (skillType === 'teleport') {
+        skillActivatedData.new_position = {
+          x: playerAfter.x,
+          y: playerAfter.y,
+        };
+        if (isFree) {
+          skillActivatedData.is_last_chance = true;
+        }
+      } else if (skillType === 'shield') {
+        skillActivatedData.shield_active = playerAfter.shield_active;
+        skillActivatedData.shield_duration = 3;
+      }
+
+      client.emit('skill_activated', skillActivatedData);
 
       this.server.to(roomId).emit('player_used_skill', {
         player_id: userId,
@@ -384,10 +406,12 @@ export class RoomsGateway
       }
 
       if (exitType === 'early' && game.game_phase === 'start') {
+        const originalBalance = player.money;
         game.process_early_exit(userId);
-        const amount = game.early_exits.get(userId) || 0;
+        const finalBalance = game.early_exits.get(userId) || 0;
+        const penalty = originalBalance - finalBalance;
 
-        await this.withdrawalService.creditUserBalance(userId, amount);
+        await this.withdrawalService.creditUserBalance(userId, finalBalance);
 
         await this.gameStatsService.savePlayerGameStats(
           userId,
@@ -398,16 +422,27 @@ export class RoomsGateway
           null,
         );
 
+        client.emit('finished', {
+          player_id: userId,
+          exit_type: 'early',
+          original_balance: originalBalance,
+          final_balance: finalBalance,
+          penalty: penalty,
+          message: 'You left the game early. You saved 50% of your balance.',
+        });
+
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
           exit_type: 'early',
-          winnings: amount,
+          winnings: finalBalance,
         });
       } else if (exitType === 'super' && game.game_phase === 'super') {
+        const originalBalance = player.money;
         game.process_super_exit(userId);
-        const amount = game.super_exits.get(userId) || 0;
+        const finalBalance = game.super_exits.get(userId) || 0;
+        const penalty = originalBalance - finalBalance;
 
-        await this.withdrawalService.creditUserBalance(userId, amount);
+        await this.withdrawalService.creditUserBalance(userId, finalBalance);
 
         await this.gameStatsService.savePlayerGameStats(
           userId,
@@ -418,10 +453,19 @@ export class RoomsGateway
           null,
         );
 
+        client.emit('finished', {
+          player_id: userId,
+          exit_type: 'super',
+          original_balance: originalBalance,
+          final_balance: finalBalance,
+          penalty: penalty,
+          message: 'You left the super game. You saved 25% of your balance.',
+        });
+
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
           exit_type: 'super',
-          winnings: amount,
+          winnings: finalBalance,
         });
       } else {
         client.emit('exit_error', {

@@ -114,6 +114,7 @@ export class UsersController {
 
       return {
         success: true,
+        user: updatedUser,
         avatar_url: updatedUser.avatar_url,
         message: 'Avatar uploaded successfully',
       };
@@ -147,10 +148,11 @@ export class UsersController {
       };
     }
 
-    await this.usersService.updateUsername(user.user_id, dto.username);
+    const updatedUser = await this.usersService.updateUsername(user.user_id, dto.username);
     return {
       success: true,
-      username: dto.username,
+      user: updatedUser,
+      username: updatedUser.username,
       message: 'Никнейм успешно обновлен',
     };
   }
