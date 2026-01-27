@@ -75,7 +75,9 @@ export class Player {
     const dis = Math.sqrt(
       Math.pow(this.x - x, 2) + Math.pow(this.y - y, 2),
     );
-    return dis < this.get_radius() + radius;
+    // Еда (или другой объект) должна считаться съеденной/задетой,
+    // если расстояние между центрами меньше либо РАВНО сумме радиусов.
+    return dis <= this.get_radius() + radius;
   }
 
   is_outside_safe_zone(safe_radius: number): boolean {

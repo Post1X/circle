@@ -534,8 +534,10 @@ export class RoomsGateway
 
       if (needStartGame) {
         this.server.to(roomId).emit('game_started', { time_to_start: 30 });
+        // Запускаем игровой цикл через 30 секунд после того,
+        // как набралось минимальное количество игроков.
         setTimeout(() => {
-          // Start game loop
+          this.startGameLoop(roomId);
         }, 30000);
       }
     } catch (error) {

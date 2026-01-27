@@ -338,3 +338,6 @@ const entryFee = data.entry_fee !== undefined && data.entry_fee !== null
 - Все изменения соответствуют документации `BACKEND_PROTECTION_MECHANICS.md`
 
 
+
+
+

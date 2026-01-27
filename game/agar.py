@@ -154,8 +154,9 @@ class Player:
         radius: int,
     ) -> bool:
         dis = sqrt((self.x - x) ** 2 + (self.y - y) ** 2)
-        # return dis < (self.radius + radius)
-        return dis < (self.get_radius() + radius)
+        # Еда (или другой объект) должна считаться съеденной/задетой,
+        # если расстояние между центрами меньше либо РАВНО сумме радиусов.
+        return dis <= (self.get_radius() + radius)
 
     def is_outside_safe_zone(self, safe_radius: int) -> bool:
         """Проверяет, находится ли игрок за пределами безопасной зоны"""
