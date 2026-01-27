@@ -195,6 +195,36 @@ export class RoomsGateway
     }
   }
 
+  @SubscribeMessage('start_game')
+  async handleStartGame(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room_id: string },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      const roomId = data.room_id;
+      const connectionRoomId = connection.room_id;
+
+      if (connectionRoomId !== roomId) {
+        client.emit('error', { message: 'Not in this room' });
+        return;
+      }
+
+      this.server.to(roomId).emit('game_started', { time_to_start: 30 });
+      
+      setTimeout(() => {
+        this.startGameLoop(roomId);
+      }, 30000);
+    } catch (error) {
+      client.emit('error', { message: error.message });
+    }
+  }
+
   @SubscribeMessage('get_rooms')
   async handleGetRooms(@ConnectedSocket() client: Socket) {
     try {
