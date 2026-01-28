@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
 import { GameRoom } from '../../entities/game-room.entity';
 import { randomUUID } from 'crypto';
 
@@ -37,6 +37,25 @@ export class RoomsService {
 
   async getAllRooms(): Promise<GameRoom[]> {
     return await this.gameRoomRepository.find();
+  }
+
+  async findFreeRoom(
+    entryFee: number,
+    minPlayers: number,
+    maxPlayers: number,
+  ): Promise<GameRoom | null> {
+    return await this.gameRoomRepository.findOne({
+      where: {
+        status: 'waiting',
+        players: LessThan(maxPlayers),
+        entry_fee: entryFee,
+        min_players: minPlayers,
+        max_players: maxPlayers,
+      },
+      order: {
+        created_at: 'ASC',
+      },
+    });
   }
 
   async addPlayer(roomId: string): Promise<void> {

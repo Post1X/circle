@@ -148,6 +148,68 @@ export class RoomsGateway
     }
   }
 
+  @SubscribeMessage('join_game')
+  async handleJoinGame(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: { entry_fee?: number; min_players?: number; max_players?: number },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      const entryFee =
+        data.entry_fee !== undefined && data.entry_fee !== null
+          ? Math.max(0, Number(data.entry_fee))
+          : 0;
+
+      // Временно по умолчанию запускаем игру даже с 1 игроком
+      const minPlayers = data.min_players ?? 1;
+      const maxPlayers = data.max_players ?? 50;
+
+      // Пытаемся найти свободную подходящую комнату
+      let room =
+        (await this.roomsService.findFreeRoom(
+          entryFee,
+          minPlayers,
+          maxPlayers,
+        )) ?? null;
+
+      // Если нет — создаём новую
+      if (!room) {
+        room = await this.roomsService.createRoom(
+          entryFee,
+          minPlayers,
+          maxPlayers,
+        );
+      }
+
+      const roomId = room.room_id;
+
+      // Обновляем playersInRoom локально, чтобы joinRoomSocket разослал корректный список
+      if (!this.playersInRoom.has(roomId)) {
+        this.playersInRoom.set(roomId, []);
+      }
+      const players = this.playersInRoom.get(roomId)!;
+      const alreadyInRoom = players.some(
+        (p) => p.user_id === connection.user_id,
+      );
+      if (!alreadyInRoom) {
+        players.push({
+          user_id: connection.user_id!,
+          username: connection.username || connection.user_id!,
+        });
+      }
+
+      await this.joinRoomSocket(client, roomId);
+    } catch (error: any) {
+      client.emit('error', { message: (error?.message || String(error)) + ' join_game' });
+    }
+  }
+
   @SubscribeMessage('join_room')
   async handleJoinRoom(
     @ConnectedSocket() client: Socket,
@@ -535,7 +597,11 @@ export class RoomsGateway
       if (needStartGame) {
         this.server.to(roomId).emit('game_started', { time_to_start: 30 });
         setTimeout(() => {
-          // Start game loop
+          this.startGameLoop(roomId).catch((err) => {
+            this.logger.error(
+              `Failed to start game loop for room ${roomId}: ${err?.message || err}`,
+            );
+          });
         }, 30000);
       }
     } catch (error) {
