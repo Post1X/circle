@@ -100,9 +100,9 @@ def update_fake_count_task():
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     try:
         if loop.is_closed():
             loop = asyncio.new_event_loop()
@@ -110,7 +110,7 @@ def update_fake_count_task():
         loop.run_until_complete(player_counter_service.update_fake_count())
     finally:
         if not loop.is_closed():
-        loop.close()
+            loop.close()
 
 @celery_app.task
 def cleanup_expired_users_task():
@@ -118,9 +118,9 @@ def cleanup_expired_users_task():
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     try:
         if loop.is_closed():
             loop = asyncio.new_event_loop()
@@ -128,7 +128,7 @@ def cleanup_expired_users_task():
         loop.run_until_complete(player_counter_service.cleanup_expired_users())
     finally:
         if not loop.is_closed():
-        loop.close()
+            loop.close()
 
 
 @celery_app.on_after_configure.connect
