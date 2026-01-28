@@ -350,7 +350,8 @@ async def get_rooms(sid: str) -> None:
                 }
                 for room in rooms
             ]
-            await sio.emit("rooms_list", {"rooms": rooms_data}, room=sid)
+            # Добавили поле version для быстрой проверки, что задеплоен новый код
+            await sio.emit("rooms_list", {"rooms": rooms_data, "version": "rooms_v2"}, room=sid)
     except Exception as e:
         await sio.emit("error", {"message": str(e) + "get_rooms"}, room=sid)
 
