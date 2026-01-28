@@ -202,6 +202,8 @@ async def join_game(sid: str, data: Dict[str, Any]) -> None:
             - max_players: максимальное число игроков (по умолчанию 100)
     """
     try:
+        # Debug-событие, чтобы на клиенте было видно, что join_game реально дошёл до сервера
+        await sio.emit("join_game_received", {"sid": sid, "data": data}, room=sid)
         if not active_connections[sid]["authenticated"]:
             await sio.emit("error", {"message": "Authentication required"}, room=sid)
             return
@@ -229,6 +231,20 @@ async def join_game(sid: str, data: Dict[str, Any]) -> None:
                     min_players=min_players,
                     max_players=max_players,
                 )
+
+            # Дополнительное debug-сообщение, какую именно комнату выбрали/создали
+            await sio.emit(
+                "join_game_room",
+                {
+                    "room_id": str(room.room_id),
+                    "entry_fee": room.entry_fee,
+                    "min_players": room.min_players,
+                    "max_players": room.max_players,
+                    "players": room.players,
+                    "status": room.status,
+                },
+                room=sid,
+            )
 
             await _join_room_socket(sid, str(room.room_id))
 
