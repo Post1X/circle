@@ -187,6 +187,56 @@ async def create_room(sid: str, data: Dict[str, Any]) -> None:
 
 
 @sio.event
+async def join_game(sid: str, data: Dict[str, Any]) -> None:
+    """
+    Автоматическое подключение к игре:
+    - ищем подходящую комнату в статусе waiting;
+    - если нет — создаем новую;
+    - затем подключаем игрока через _join_room_socket.
+
+    Args:
+        sid: Session ID клиента
+        data: Параметры матчинга (опционально):
+            - entry_fee: вступительный взнос (по умолчанию 0)
+            - min_players: минимальное число игроков (по умолчанию 20)
+            - max_players: максимальное число игроков (по умолчанию 100)
+    """
+    try:
+        if not active_connections[sid]["authenticated"]:
+            await sio.emit("error", {"message": "Authentication required"}, room=sid)
+            return
+
+        entry_fee = int(data.get("entry_fee", 0))
+        # Временно ставим минимальное количество игроков равным 1,
+        # чтобы игра могла стартовать сразу.
+        min_players = int(data.get("min_players", 1))
+        max_players = int(data.get("max_players", 100))
+
+        async with get_session() as session:
+            actions = RoomActions(session)
+
+            # Пытаемся найти уже существующую подходящую комнату
+            room = await actions.get_free_room(
+                entry_fee=entry_fee,
+                min_players=min_players,
+                max_players=max_players,
+            )
+
+            # Если подходящей комнаты нет — создаем новую
+            if not room:
+                room = await actions.create_room(
+                    entry_fee=entry_fee,
+                    min_players=min_players,
+                    max_players=max_players,
+                )
+
+            await _join_room_socket(sid, str(room.room_id))
+
+    except Exception as e:
+        await sio.emit("error", {"message": str(e) + " join_game"}, room=sid)
+
+
+@sio.event
 async def join_room(sid: str, data: Dict[str, Any]) -> None:
     """
     Присоединение к существующей игровой комнате (требует аутентификации).
