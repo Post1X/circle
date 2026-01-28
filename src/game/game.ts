@@ -464,22 +464,15 @@ export class Game {
       return [false, 'invalid_skill_type', 0];
     }
 
-    const [can_use, message] = player.can_use_skill(skill_type);
+    // Делаем скиллы бесплатными: игнорируем требования по балансу,
+    // но сохраняем лимиты по количеству и кулдаунам.
+    const [can_use, message] = player.can_use_skill(skill_type, true);
     if (!can_use) {
       return [false, message, 0];
     }
 
+    // Полностью отключаем стоимость скиллов
     let cost = 0;
-    if (!is_free) {
-      cost = player.get_skill_cost_amount(skill_type);
-
-      if (player.money < cost) {
-        return [false, 'insufficient_balance', cost];
-      }
-
-      player.money -= cost;
-      this.bonus_fund += cost;
-    }
 
     if (skill_type === 'teleport') {
       player.activate_teleport();

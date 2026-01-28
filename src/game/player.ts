@@ -151,8 +151,8 @@ export class Player {
     }
   }
 
-  can_use_skill(skill_type: string): [boolean, string] {
-    if (this.money < 1.0) {
+  can_use_skill(skill_type: string, ignoreBalance: boolean = false): [boolean, string] {
+    if (!ignoreBalance && this.money < 1.0) {
       return [false, 'minimum_balance_required'];
     }
 
