@@ -324,12 +324,17 @@ export class RoomsGateway
     }
 
     const player = game.players.get(userId);
-    let isFree = false;
 
+    // Проверяем "последний шанс" для игроков с низким балансом в супер игре
     if (game.game_phase === 'super' && player && skillType === 'teleport') {
-      const lastChanceEligible = game.check_last_chance(userId);
-      if (lastChanceEligible) {
-        isFree = true;
+      const lastChanceSuccess = game.check_last_chance(userId);
+      if (lastChanceSuccess) {
+        this.server.to(roomId).emit('last_chance_activated', {
+          player_id: userId,
+          skill_type: skillType,
+          skill_costs_increased: game.skill_costs_increased,
+        });
+        return;
       }
     }
 
@@ -337,7 +342,7 @@ export class RoomsGateway
     const [success, errorCode, cost] = game.activate_skill(
       userId,
       skillType,
-      isFree,
+      false,
     );
 
     if (success) {
@@ -366,7 +371,7 @@ export class RoomsGateway
         cost,
         balanceBefore,
         playerAfter.money,
-        isFree,
+        false,
       );
 
       const skillActivatedData: any = {
@@ -384,9 +389,6 @@ export class RoomsGateway
           x: playerAfter.x,
           y: playerAfter.y,
         };
-        if (isFree) {
-          skillActivatedData.is_last_chance = true;
-        }
       } else if (skillType === 'shield') {
         skillActivatedData.shield_active = playerAfter.shield_active;
         skillActivatedData.shield_duration = 3;
@@ -424,17 +426,386 @@ export class RoomsGateway
     return messages[errorCode] || 'Unknown error';
   }
 
+  @SubscribeMessage('get_players')
+  async handleGetPlayers(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room_id: string },
+  ) {
+    const { get_game } = await import('../../game');
+    const game = await get_game(data.room_id);
+    if (game) {
+      client.emit('all_players', Object.fromEntries(game.players));
+    }
+  }
+
+  @SubscribeMessage('get_bonus_zones_info')
+  async handleGetBonusZonesInfo(@ConnectedSocket() client: Socket) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
+
+      if (!roomId) {
+        client.emit('error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('error', { message: 'Game not found' });
+        return;
+      }
+
+      const bonusZonesInfo = {
+        active_zones: game.bonus_zones.map((zone) => ({
+          x: zone.x,
+          y: zone.y,
+          radius: zone.radius,
+          multiplier: zone.multiplier,
+          remaining_time: zone.get_remaining_time(),
+          funds_collected: zone.funds_collected,
+          max_funds: zone.funds_generated * zone.multiplier,
+          is_active: zone.is_active,
+        })),
+        zone_fund: game.zone_fund,
+        bonus_fund: game.bonus_fund,
+        time_to_next_zone: game.get_time_to_next_bonus_zone(),
+        zone_settings: {
+          spawn_interval_seconds: game.bonus_zone_interval,
+          zone_duration_seconds: 30.0,
+          funds_per_zone: 20,
+        },
+      };
+
+      client.emit('bonus_zones_info', bonusZonesInfo);
+    } catch (error: any) {
+      client.emit('error', {
+        message: `Error getting bonus zones info: ${error?.message || String(error)}`,
+      });
+    }
+  }
+
+  @SubscribeMessage('get_game_phase')
+  async handleGetGamePhase(@ConnectedSocket() client: Socket) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
+      const userId = connection?.user_id;
+
+      if (!roomId || !userId) {
+        client.emit('game_phase_error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('game_phase_error', { message: 'Game not found' });
+        return;
+      }
+
+      const phaseInfo = game.get_game_phase_info();
+      client.emit('game_phase_info', phaseInfo);
+    } catch (error: any) {
+      client.emit('game_phase_error', { message: error?.message || String(error) });
+    }
+  }
+
+  @SubscribeMessage('submit_vote')
+  async handleSubmitVote(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { vote: string },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
+      const userId = connection?.user_id;
+
+      if (!roomId || !userId) {
+        client.emit('vote_error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game, set_changes } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('vote_error', { message: 'Game not found' });
+        return;
+      }
+
+      const vote = data.vote;
+      if (vote !== 'exit' && vote !== 'super') {
+        client.emit('vote_error', { message: 'Invalid vote' });
+        return;
+      }
+
+      const success = game.submit_vote(userId, vote);
+
+      if (success) {
+        client.emit('vote_submitted', {
+          vote: vote,
+          voting_time_remaining: game.get_voting_time_remaining(),
+        });
+
+        let votesExit = 0;
+        let votesSuper = 0;
+        for (const v of game.votes.values()) {
+          if (v === 'exit') votesExit++;
+          if (v === 'super') votesSuper++;
+        }
+
+        this.server.to(roomId).emit('vote_update', {
+          votes_submitted: game.votes.size,
+          votes_exit: votesExit,
+          votes_super: votesSuper,
+        });
+
+        await set_changes(roomId, game);
+      } else {
+        client.emit('vote_error', { message: 'Cannot submit vote' });
+      }
+    } catch (error: any) {
+      client.emit('vote_error', { message: error?.message || String(error) });
+    }
+  }
+
+  @SubscribeMessage('request_last_chance')
+  async handleRequestLastChance(@ConnectedSocket() client: Socket) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
+      const userId = connection?.user_id;
+
+      if (!roomId || !userId) {
+        client.emit('last_chance_error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('last_chance_error', { message: 'Game not found' });
+        return;
+      }
+
+      const success = game.check_last_chance(userId);
+
+      if (success) {
+        this.server.to(roomId).emit('last_chance_activated', {
+          player_id: userId,
+          skill_costs_increased: game.skill_costs_increased,
+        });
+      } else {
+        client.emit('last_chance_error', {
+          message: 'Cannot activate last chance',
+        });
+      }
+    } catch (error: any) {
+      client.emit('last_chance_error', { message: error?.message || String(error) });
+    }
+  }
+
+  @SubscribeMessage('get_game_results')
+  async handleGetGameResults(@ConnectedSocket() client: Socket) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
+
+      if (!roomId) {
+        client.emit('results_error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('results_error', { message: 'Game not found' });
+        return;
+      }
+
+      const results: any = {
+        early_exits: Object.fromEntries(game.early_exits),
+        super_exits: Object.fromEntries(game.super_exits),
+        finalists: game.finalists,
+        bonus_fund: game.bonus_fund,
+        zone_fund: game.zone_fund,
+        final_winnings: {},
+      };
+
+      for (const playerId of game.finalists) {
+        if (game.players.has(playerId)) {
+          results.final_winnings[playerId] =
+            game.players.get(playerId)?.final_winnings || 0;
+        }
+      }
+
+      client.emit('game_results', results);
+    } catch (error: any) {
+      client.emit('results_error', { message: error?.message || String(error) });
+    }
+  }
+
+  private async buildLeaderboardData(roomId: string, game: any): Promise<any | null> {
+    try {
+      const playersList: any[] = [];
+      for (const [playerId, player] of game.players.entries()) {
+        // В Python: сначала player_id, потом ищется в players_in_room
+        let playerUsername = playerId;
+        const playersInRoom = this.playersInRoom.get(roomId);
+        if (playersInRoom) {
+          const playerInfo = playersInRoom.find((p) => p.user_id === playerId);
+          if (playerInfo) {
+            playerUsername = playerInfo.username;
+          } else if (player.username) {
+            // Если не нашли в playersInRoom, используем username из игрока
+            playerUsername = player.username;
+          }
+        } else if (player.username) {
+          playerUsername = player.username;
+        }
+
+        const colorTuple =
+          Array.isArray(player.color) && player.color.length === 3
+            ? (player.color as [number, number, number])
+            : ([0, 255, 0] as [number, number, number]);
+
+        playersList.push({
+          player_id: playerId,
+          mass: player.get_radius(),
+          x: player.x,
+          y: player.y,
+          r: colorTuple[0],
+          g: colorTuple[1],
+          b: colorTuple[2],
+          skills_used: player.skills_used,
+          bonus_zone_collected: player.bonus_zone_collected,
+          outside_zone_damage: player.outside_zone_damage,
+          in_bonus_zone: player.in_bonus_zone,
+          bonus_multiplier: player.current_bonus_multiplier,
+          rank: 0,
+          username: playerUsername,
+        });
+      }
+
+      playersList.sort((a, b) => b.mass - a.mass);
+      playersList.forEach((p, i) => {
+        p.rank = i + 1;
+      });
+
+      const phase = game.get_game_phase_info();
+
+      const gamePhaseInfo: any = {
+        phase: phase.phase,
+        players_count: game.players.size,
+        bonus_fund: game.bonus_fund,
+        zone_fund: game.zone_fund,
+      };
+
+      if (phase.voting_time_remaining !== undefined) {
+        gamePhaseInfo.voting_time_remaining = phase.voting_time_remaining;
+      }
+      if (phase.votes_submitted !== undefined) {
+        gamePhaseInfo.votes_submitted = phase.votes_submitted;
+      }
+      if (phase.votes_exit !== undefined) {
+        gamePhaseInfo.votes_exit = phase.votes_exit;
+      }
+      if (phase.votes_super !== undefined) {
+        gamePhaseInfo.votes_super = phase.votes_super;
+      }
+      if (phase.super_game_time_remaining !== undefined) {
+        gamePhaseInfo.super_game_time_remaining = phase.super_game_time_remaining;
+      }
+      if (phase.skill_costs_increased !== undefined) {
+        gamePhaseInfo.skill_costs_increased = phase.skill_costs_increased;
+      }
+
+      const leaderboardData: any = {
+        current_players: playersList,
+        total_players: playersList.length,
+        game_phase: gamePhaseInfo,
+        game_time: game.get_game_time(),
+        safe_zone_scale: game.safe_zone_scale,
+        zone_fund: game.zone_fund,
+        bonus_fund: game.bonus_fund,
+      };
+
+      if (game.early_exits.size > 0) {
+        const earlyExitsList = Array.from(game.early_exits.entries())
+          .map(([pid, amount]) => ({
+            player_id: pid,
+            winnings: amount,
+            exit_type: 'early',
+            percentage: 50,
+          }))
+          .sort((a, b) => b.winnings - a.winnings);
+        leaderboardData.early_exits = earlyExitsList;
+      }
+
+      if (game.super_exits.size > 0) {
+        const superExitsList = Array.from(game.super_exits.entries())
+          .map(([pid, amount]) => ({
+            player_id: pid,
+            winnings: amount,
+            exit_type: 'super',
+            percentage: 25,
+          }))
+          .sort((a, b) => b.winnings - a.winnings);
+        leaderboardData.super_exits = superExitsList;
+      }
+
+      if (game.finalists.length > 0) {
+        const finalistsList = game.finalists
+          .filter((pid) => game.players.has(pid))
+          .map((pid) => ({
+            player_id: pid,
+            final_winnings: game.players.get(pid)?.final_winnings || 0,
+            final_mass: game.players.get(pid)?.get_radius() || 0,
+          }))
+          .sort((a, b) => b.final_winnings - a.final_winnings);
+        leaderboardData.finalists = finalistsList;
+      }
+
+      return leaderboardData;
+    } catch (error) {
+      this.logger.error(`Error building leaderboard for room ${roomId}: ${error?.message || error}`);
+      return null;
+    }
+  }
+
   @SubscribeMessage('get_leaderboard')
   async handleGetLeaderboard(@ConnectedSocket() client: Socket) {
-    const connection = this.activeConnections.get(client.id);
-    const roomId = connection?.room_id;
+    try {
+      const connection = this.activeConnections.get(client.id);
+      const roomId = connection?.room_id;
 
-    if (!roomId) {
-      client.emit('leaderboard_error', { message: 'Not in game' });
-      return;
+      if (!roomId) {
+        client.emit('leaderboard_error', { message: 'Not in game' });
+        return;
+      }
+
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+
+      if (!game) {
+        client.emit('leaderboard_error', { message: 'Game not found' });
+        return;
+      }
+
+      const leaderboardData = await this.buildLeaderboardData(roomId, game);
+      if (leaderboardData) {
+        client.emit('leaderboard', leaderboardData);
+      } else {
+        client.emit('leaderboard_error', { message: 'Failed to build leaderboard' });
+      }
+    } catch (error: any) {
+      client.emit('leaderboard_error', { message: error?.message || String(error) });
     }
-
-    // Game logic will be handled by game service
   }
 
   @SubscribeMessage('exit_game')
@@ -662,6 +1033,7 @@ export class RoomsGateway
     }
 
     let lastPhase = game.game_phase;
+    let lastLeaderboardTime = Date.now();
 
     const loop = setInterval(async () => {
       const currentGame = await get_game(roomId);
@@ -835,6 +1207,16 @@ export class RoomsGateway
 
       const gameState = currentGame.get_state();
       this.server.to(roomId).emit('game_state', gameState);
+
+      // Отправляем лидерборд раз в 10 секунд всем в комнате
+      const now = Date.now();
+      if (now - lastLeaderboardTime >= 10000) {
+        const leaderboardData = await this.buildLeaderboardData(roomId, currentGame);
+        if (leaderboardData) {
+          this.server.to(roomId).emit('leaderboard', leaderboardData);
+        }
+        lastLeaderboardTime = now;
+      }
 
       await set_changes(roomId, currentGame);
     }, 50);
