@@ -655,6 +655,7 @@ export class Game {
         time_to_next_shrink: this.get_time_to_next_shrink(),
         game_time: this.get_game_time(),
       },
+      maxAllowedDistance: 800,
     };
 
     if (this.early_exits.size > 0) {

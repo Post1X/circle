@@ -85,6 +85,7 @@ export interface GameState {
   game_phase: Phase;
   players: Array<Record<string, PlayerData>>;
   foods: FoodModel[];
+  maxAllowedDistance: number;
   early_exits?: Record<string, number>;
   super_exits?: Record<string, number>;
   finalists?: string[];
