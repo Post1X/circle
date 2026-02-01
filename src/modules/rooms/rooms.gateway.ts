@@ -1034,6 +1034,7 @@ export class RoomsGateway
 
     let lastPhase = game.game_phase;
     let lastLeaderboardTime = Date.now();
+    let lastPlayersPositionsTime = Date.now();
 
     const loop = setInterval(async () => {
       const currentGame = await get_game(roomId);
@@ -1208,7 +1209,6 @@ export class RoomsGateway
       const gameState = currentGame.get_state();
       this.server.to(roomId).emit('game_state', gameState);
 
-      // Отправляем лидерборд раз в 10 секунд всем в комнате
       const now = Date.now();
       if (now - lastLeaderboardTime >= 10000) {
         const leaderboardData = await this.buildLeaderboardData(roomId, currentGame);
@@ -1216,6 +1216,22 @@ export class RoomsGateway
           this.server.to(roomId).emit('leaderboard', leaderboardData);
         }
         lastLeaderboardTime = now;
+      }
+
+      if (now - lastPlayersPositionsTime >= 3000) {
+        const playersPositions = Array.from(currentGame.players.entries()).map(
+          ([playerId, player]) => ({
+            player_id: playerId,
+            x: player.x,
+            y: player.y,
+            mass: player.get_radius(),
+          }),
+        );
+        this.server.to(roomId).emit('players_positions', {
+          players: playersPositions,
+          timestamp: now,
+        });
+        lastPlayersPositionsTime = now;
       }
 
       await set_changes(roomId, currentGame);

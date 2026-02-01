@@ -344,6 +344,41 @@ socket.on('game_state', (state) => {
 });
 ```
 
+### `players_positions`
+
+Позиции всех игроков в комнате (отправляется автоматически раз в 3 секунды).
+
+**Данные:**
+```json
+{
+  "players": [
+    {
+      "player_id": "uuid",
+      "x": 150,
+      "y": 200,
+      "mass": 25.5
+    },
+    {
+      "player_id": "uuid-2",
+      "x": 300,
+      "y": 400,
+      "mass": 30.2
+    }
+  ],
+  "timestamp": 1705276800000
+}
+```
+
+**Пример:**
+```javascript
+socket.on('players_positions', (data) => {
+  // Обновляй позиции игроков на карте
+  data.players.forEach((player) => {
+    updatePlayerPosition(player.player_id, player.x, player.y, player.mass);
+  });
+});
+```
+
 ### `leaderboard`
 
 Лидерборд игры (отправляется автоматически раз в 10 секунд + по запросу).
@@ -1090,6 +1125,7 @@ socket.on('finished', (data) => {
 - `player_left`
 - `game_started`
 - `game_state`
+- `players_positions` (каждые 3 секунды)
 - `leaderboard` / `leaderboard_error`
 - `skill_activated` / `skill_error`
 - `player_used_skill`
@@ -1110,4 +1146,6 @@ socket.on('finished', (data) => {
 - `game_finished`
 - `all_players`
 - `error`
+
+
 
