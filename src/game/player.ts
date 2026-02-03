@@ -81,7 +81,9 @@ export class Player {
   }
 
   is_outside_safe_zone(safe_radius: number): boolean {
-    return !(this.x < safe_radius && this.y < safe_radius);
+    const distance_from_center = Math.sqrt(this.x * this.x + this.y * this.y);
+    const max_allowed_distance = safe_radius - this.get_radius();
+    return distance_from_center > max_allowed_distance;
   }
 
   apply_zone_damage(damage_per_second: number = 2.0): void {
@@ -105,24 +107,47 @@ export class Player {
     this.last_zone_damage_time = 0;
   }
 
-  move(dx: number, dy: number, map_radius: number): void {
+  move(dx: number, dy: number, map_radius: number, safe_zone_radius?: number): void {
     const speed_multiplier = this.speed_boost_active
       ? this.boost_speed_multiplier
       : this.base_speed;
-    this.x += dx * speed_multiplier;
-    this.y += dy * speed_multiplier;
+    
+    // Вычисляем новую позицию
+    const new_x = this.x + dx * speed_multiplier;
+    const new_y = this.y + dy * speed_multiplier;
 
-    if (this.x > map_radius) {
-      this.x = map_radius;
-    } else if (this.x < 0) {
-      this.x = 0;
+    // Сначала ограничиваем границами карты
+    let final_x = new_x;
+    let final_y = new_y;
+
+    if (final_x > map_radius) {
+      final_x = map_radius;
+    } else if (final_x < -map_radius) {
+      final_x = -map_radius;
     }
 
-    if (this.y > map_radius) {
-      this.y = map_radius;
-    } else if (this.y < 0) {
-      this.y = 0;
+    if (final_y > map_radius) {
+      final_y = map_radius;
+    } else if (final_y < -map_radius) {
+      final_y = -map_radius;
     }
+
+    // Если указан safe_zone_radius, ограничиваем движение границами safe_zone
+    if (safe_zone_radius !== undefined) {
+      const distance_from_center = Math.sqrt(final_x * final_x + final_y * final_y);
+      const max_allowed_distance = safe_zone_radius - this.get_radius();
+
+      if (distance_from_center > max_allowed_distance) {
+        // Ограничиваем позицию границами safe_zone, НЕ телепортируем в центр!
+        const angle = Math.atan2(final_y, final_x);
+        final_x = Math.cos(angle) * max_allowed_distance;
+        final_y = Math.sin(angle) * max_allowed_distance;
+      }
+    }
+
+    // Обновляем позицию
+    this.x = final_x;
+    this.y = final_y;
   }
 
   update_skills(): void {

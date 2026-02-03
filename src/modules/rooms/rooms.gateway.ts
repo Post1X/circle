@@ -9,6 +9,8 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
 import { RoomsService } from './rooms.service';
 import { UsersService } from '../users/users.service';
 import { PlayerCounterService } from '../../services/player-counter/player-counter.service';
@@ -52,6 +54,8 @@ export class RoomsGateway
     private skillStatsService: SkillStatsService,
     private gameTrackerService: GameTrackerService,
     private gameStatsService: GameStatsService,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   handleConnection(client: Socket) {
@@ -652,6 +656,17 @@ export class RoomsGateway
 
   private async buildLeaderboardData(roomId: string, game: any): Promise<any | null> {
     try {
+      // Получаем всех пользователей одним запросом для получения аватарок
+      const playerIds = Array.from(game.players.keys());
+      const users = await this.userRepository.find({
+        where: { user_id: In(playerIds) },
+        select: ['user_id', 'avatar_url'],
+      });
+      const avatarMap = new Map<string, string | null>();
+      users.forEach((user) => {
+        avatarMap.set(user.user_id, user.avatar_url);
+      });
+
       const playersList: any[] = [];
       for (const [playerId, player] of game.players.entries()) {
         // В Python: сначала player_id, потом ищется в players_in_room
@@ -689,6 +704,7 @@ export class RoomsGateway
           bonus_multiplier: player.current_bonus_multiplier,
           rank: 0,
           username: playerUsername,
+          avatar: avatarMap.get(playerId) || null,
         });
       }
 
@@ -742,6 +758,7 @@ export class RoomsGateway
             winnings: amount,
             exit_type: 'early',
             percentage: 50,
+            avatar: avatarMap.get(pid) || null,
           }))
           .sort((a, b) => b.winnings - a.winnings);
         leaderboardData.early_exits = earlyExitsList;
@@ -754,6 +771,7 @@ export class RoomsGateway
             winnings: amount,
             exit_type: 'super',
             percentage: 25,
+            avatar: avatarMap.get(pid) || null,
           }))
           .sort((a, b) => b.winnings - a.winnings);
         leaderboardData.super_exits = superExitsList;
@@ -766,6 +784,7 @@ export class RoomsGateway
             player_id: pid,
             final_winnings: game.players.get(pid)?.final_winnings || 0,
             final_mass: game.players.get(pid)?.get_radius() || 0,
+            avatar: avatarMap.get(pid) || null,
           }))
           .sort((a, b) => b.final_winnings - a.final_winnings);
         leaderboardData.finalists = finalistsList;

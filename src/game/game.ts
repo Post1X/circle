@@ -423,11 +423,21 @@ export class Game {
   }
 
   add_player(player_id: string, username?: string): void {
+    // Создаем игрока в случайной позиции внутри safe_zone (не в центре)
+    // Используем полярные координаты для равномерного распределения
+    const angle = Math.random() * 2 * Math.PI;
+    const max_distance = this.safe_zone_radius * 0.8; // 80% от радиуса safe_zone, чтобы не на границе
+    const min_distance = this.safe_zone_radius * 0.1; // Минимум 10% от радиуса, чтобы не в центре
+    const distance = min_distance + Math.random() * (max_distance - min_distance);
+    
+    const x = Math.cos(angle) * distance;
+    const y = Math.sin(angle) * distance;
+    
     this.players.set(
       player_id,
       new Player(
-        Math.floor(Math.random() * this.radius),
-        Math.floor(Math.random() * this.radius),
+        x,
+        y,
         player_id,
         this.radius,
         username,
@@ -442,7 +452,8 @@ export class Game {
   move_player(player_id: string, dx: number, dy: number): void {
     const player = this.players.get(player_id);
     if (player) {
-      player.move(dx, dy, this.radius);
+      // Передаем safe_zone_radius для ограничения движения границами safe_zone
+      player.move(dx, dy, this.radius, this.safe_zone_radius);
     }
   }
 
@@ -464,15 +475,22 @@ export class Game {
       return [false, 'invalid_skill_type', 0];
     }
 
-    // Делаем скиллы бесплатными: игнорируем требования по балансу,
-    // но сохраняем лимиты по количеству и кулдаунам.
-    const [can_use, message] = player.can_use_skill(skill_type, true);
+    const [can_use, message] = player.can_use_skill(skill_type);
     if (!can_use) {
       return [false, message, 0];
     }
 
-    // Полностью отключаем стоимость скиллов
     let cost = 0;
+    if (!is_free) {
+      cost = player.get_skill_cost_amount(skill_type);
+
+      if (player.money < cost) {
+        return [false, 'insufficient_balance', cost];
+      }
+
+      player.money -= cost;
+      this.bonus_fund += cost;
+    }
 
     if (skill_type === 'teleport') {
       player.activate_teleport();
@@ -655,7 +673,6 @@ export class Game {
         time_to_next_shrink: this.get_time_to_next_shrink(),
         game_time: this.get_game_time(),
       },
-      maxAllowedDistance: 800,
     };
 
     if (this.early_exits.size > 0) {
@@ -703,9 +720,18 @@ export class BetaGame extends Game {
     super(10, fund);
     for (let i = 1; i < 10; i++) {
       const bot_id = `bot_${i}`;
+      // Создаем бота в случайной позиции внутри safe_zone (не в центре)
+      const angle = Math.random() * 2 * Math.PI;
+      const max_distance = this.safe_zone_radius * 0.8;
+      const min_distance = this.safe_zone_radius * 0.1;
+      const distance = min_distance + Math.random() * (max_distance - min_distance);
+      
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
+      
       const bot = new Player(
-        Math.floor(Math.random() * this.radius),
-        Math.floor(Math.random() * this.radius),
+        x,
+        y,
         bot_id,
         this.radius,
       );

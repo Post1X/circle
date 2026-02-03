@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { LessThan, Repository } from 'typeorm';
+import { Repository, LessThan } from 'typeorm';
 import { GameRoom } from '../../entities/game-room.entity';
 import { randomUUID } from 'crypto';
 
@@ -23,7 +23,6 @@ export class RoomsService {
       max_players: maxPlayers,
       status: 'waiting',
       players: 0,
-      created_at: new Date(),
     });
 
     return await this.gameRoomRepository.save(room);
@@ -39,6 +38,19 @@ export class RoomsService {
     return await this.gameRoomRepository.find();
   }
 
+  async addPlayer(roomId: string): Promise<void> {
+    const room = await this.getRoomById(roomId);
+    if (room) {
+      room.players += 1;
+      await this.gameRoomRepository.save(room);
+    }
+  }
+
+  async checkStartGame(roomId: string): Promise<boolean> {
+    const room = await this.getRoomById(roomId);
+    return room ? room.min_players <= room.players : false;
+  }
+
   async findFreeRoom(
     entryFee: number,
     minPlayers: number,
@@ -52,23 +64,8 @@ export class RoomsService {
         min_players: minPlayers,
         max_players: maxPlayers,
       },
-      order: {
-        created_at: 'ASC',
-      },
+      order: { created_at: 'ASC' },
     });
-  }
-
-  async addPlayer(roomId: string): Promise<void> {
-    const room = await this.getRoomById(roomId);
-    if (room) {
-      room.players += 1;
-      await this.gameRoomRepository.save(room);
-    }
-  }
-
-  async checkStartGame(roomId: string): Promise<boolean> {
-    const room = await this.getRoomById(roomId);
-    return room ? room.min_players <= room.players : false;
   }
 }
 
