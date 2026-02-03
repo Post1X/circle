@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GameRoom } from '../../entities/game-room.entity';
+import { User } from '../../entities/user.entity';
 import { RoomsGateway } from './rooms.gateway';
 import { RoomsService } from './rooms.service';
 import { UsersModule } from '../users/users.module';
@@ -13,7 +14,7 @@ import { GameStatsModule } from '../../services/game-stats/game-stats.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([GameRoom]),
+    TypeOrmModule.forFeature([GameRoom, User]),
     UsersModule,
     PlayerCounterModule,
     WithdrawalModule,
