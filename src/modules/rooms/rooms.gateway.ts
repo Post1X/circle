@@ -329,7 +329,6 @@ export class RoomsGateway
 
     const player = game.players.get(userId);
 
-    // Проверяем "последний шанс" для игроков с низким балансом в супер игре
     if (game.game_phase === 'super' && player && skillType === 'teleport') {
       const lastChanceSuccess = game.check_last_chance(userId);
       if (lastChanceSuccess) {
@@ -337,6 +336,9 @@ export class RoomsGateway
           player_id: userId,
           skill_type: skillType,
           skill_costs_increased: game.skill_costs_increased,
+          new_position: { x: player.x, y: player.y },
+          message:
+            'Last chance activated! You teleported to safe zone. All skills now cost +5% more.',
         });
         return;
       }
@@ -599,9 +601,14 @@ export class RoomsGateway
       const success = game.check_last_chance(userId);
 
       if (success) {
+        const player = game.players.get(userId);
+
         this.server.to(roomId).emit('last_chance_activated', {
           player_id: userId,
           skill_costs_increased: game.skill_costs_increased,
+          new_position: player ? { x: player.x, y: player.y } : null,
+          message:
+            'Last chance activated! You teleported to safe zone. All skills now cost +5% more.',
         });
       } else {
         client.emit('last_chance_error', {
@@ -837,7 +844,9 @@ export class RoomsGateway
     const userId = connection?.user_id;
 
     if (!roomId || !userId) {
-      client.emit('exit_error', { message: 'Not in game' });
+      const payload = { message: 'Not in game' };
+      client.emit('exit_error', payload);
+      client.emit('cash_out_error', payload);
       return;
     }
 
@@ -845,7 +854,9 @@ export class RoomsGateway
       const { get_game, set_changes } = await import('../../game');
       const game = await get_game(roomId);
       if (!game) {
-        client.emit('exit_error', { message: 'Game not found' });
+        const payload = { message: 'Game not found' };
+        client.emit('exit_error', payload);
+        client.emit('cash_out_error', payload);
         return;
       }
 
@@ -853,7 +864,9 @@ export class RoomsGateway
 
       const player = game.players.get(userId);
       if (!player) {
-        client.emit('exit_error', { message: 'Player not found' });
+        const payload = { message: 'Player not found' };
+        client.emit('exit_error', payload);
+        client.emit('cash_out_error', payload);
         return;
       }
 
@@ -874,14 +887,18 @@ export class RoomsGateway
           null,
         );
 
-        client.emit('finished', {
+        const successPayload = {
           player_id: userId,
-          exit_type: 'early',
+          exit_type: 'early' as const,
           original_balance: originalBalance,
           final_balance: finalBalance,
           penalty: penalty,
-          message: 'You left the game early. You saved 50% of your balance.',
-        });
+          message:
+            'You cashed out. You saved 50% of your balance.',
+        };
+
+        client.emit('finished', successPayload);
+        client.emit('cash_out_success', successPayload);
 
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
@@ -905,14 +922,18 @@ export class RoomsGateway
           null,
         );
 
-        client.emit('finished', {
+        const successPayload = {
           player_id: userId,
-          exit_type: 'super',
+          exit_type: 'super' as const,
           original_balance: originalBalance,
           final_balance: finalBalance,
           penalty: penalty,
-          message: 'You left the super game. You saved 25% of your balance.',
-        });
+          message:
+            'You cashed out. You saved 25% of your balance.',
+        };
+
+        client.emit('finished', successPayload);
+        client.emit('cash_out_success', successPayload);
 
         this.server.to(roomId).emit('player_exited', {
           player_id: userId,
@@ -920,18 +941,30 @@ export class RoomsGateway
           winnings: finalBalance,
         });
       } else {
-        client.emit('exit_error', {
+        const payload = {
           message: 'Invalid exit type or phase',
-        });
+        };
+        client.emit('exit_error', payload);
+        client.emit('cash_out_error', payload);
         return;
       }
 
       await this.gameTrackerService.removePlayerFromRoom(userId, roomId);
       await set_changes(roomId, game);
       await this.leaveRoomSocket(client, roomId);
-    } catch (error) {
-      client.emit('exit_error', { message: error.message });
+    } catch (error: any) {
+      const payload = { message: error?.message || String(error) };
+      client.emit('exit_error', payload);
+      client.emit('cash_out_error', payload);
     }
+  }
+
+  @SubscribeMessage('cash_out')
+  async handleCashOut(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { exit_type: 'early' | 'super' },
+  ) {
+    await this.handleExitGame(client, data);
   }
 
   private async joinRoomSocket(client: Socket, roomId: string) {
@@ -985,7 +1018,41 @@ export class RoomsGateway
       });
 
       if (needStartGame) {
-        this.server.to(roomId).emit('game_started', { time_to_start: 30 });
+        const userIds = players
+          .map((p) => p.user_id)
+          .filter((id): id is string => !!id);
+
+        let playersWithAvatars = players as Array<{
+          user_id: string;
+          username: string;
+          avatar_url: string | null;
+        }>;
+
+        if (userIds.length > 0) {
+          const users = await this.userRepository.find({
+            where: { user_id: In(userIds) },
+            select: ['user_id', 'avatar_url'],
+          });
+          const avatarMap = new Map<string, string | null>();
+          users.forEach((user) => {
+            avatarMap.set(user.user_id, user.avatar_url);
+          });
+
+          playersWithAvatars = players.map((p) => ({
+            ...p,
+            avatar_url: avatarMap.get(p.user_id) ?? null,
+          })) as Array<{
+            user_id: string;
+            username: string;
+            avatar_url: string | null;
+          }>;
+        }
+
+        this.server.to(roomId).emit('game_started', {
+          time_to_start: 30,
+          players: playersWithAvatars,
+        });
+
         setTimeout(() => {
           this.startGameLoop(roomId).catch((err) => {
             this.logger.error(

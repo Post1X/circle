@@ -4,6 +4,7 @@ import { BonusZone } from './bonus-zone';
 import { Food, gen_food } from './food';
 
 const BASE_RADIUS = 400;
+const FOOD_COLLISION_FACTOR = 0.2;
 
 function calculate_map_size(player_count: number): number {
   let scale_factor: number;
@@ -257,6 +258,10 @@ export class Game {
       return false;
     }
 
+    if (this.last_chance_used.has(player_id)) {
+      return false;
+    }
+
     const player = this.players.get(player_id);
     if (!player || player.free_teleport_used) {
       return false;
@@ -271,6 +276,11 @@ export class Game {
     if (player.money >= 5) {
       return false;
     }
+
+    player.activate_teleport();
+    this.last_chance_used.set(player_id, true);
+    this.skill_costs_increased = true;
+    player.free_teleport_used = true;
 
     return true;
   }
@@ -563,7 +573,14 @@ export class Game {
 
       for (let i = this.foods.length - 1; i >= 0; i--) {
         const food = this.foods[i];
-        if (player.have_colision(food.x, food.y, Math.floor(food.mass))) {
+
+        const foodRadius = Math.floor(food.mass);
+        const dx = player.x - food.x;
+        const dy = player.y - food.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const effectivePlayerRadius = player.get_radius() * FOOD_COLLISION_FACTOR;
+
+        if (distance <= effectivePlayerRadius + foodRadius) {
           let food_value = food.mass;
           if (player.in_bonus_zone) {
             food_value *= player.current_bonus_multiplier;

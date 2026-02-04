@@ -18,6 +18,7 @@ from .models import (
 
 # Базовые размеры карты
 BASE_RADIUS = 400
+FOOD_COLLISION_FACTOR = 0.2
 
 
 def calculate_map_size(player_count: int) -> int:
@@ -815,7 +816,10 @@ class Game:
                     player.move(dx, dy, self.radius)
 
                 for food in self.foods[:]:
-                    if player.have_colision(food.x, food.y, int(food.mass)):
+                    distance = sqrt((player.x - food.x) ** 2 + (player.y - food.y) ** 2)
+                    effective_radius = player.get_radius() * FOOD_COLLISION_FACTOR + int(food.mass)
+
+                    if distance <= effective_radius:
                         # Применяем множитель бонусной зоны
                         food_value = food.mass
                         if player.in_bonus_zone:
