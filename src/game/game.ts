@@ -3,7 +3,7 @@ import { Player } from './player';
 import { BonusZone } from './bonus-zone';
 import { Food, gen_food } from './food';
 
-const BASE_RADIUS = 400;
+const BASE_RADIUS = 1200;
 const FOOD_COLLISION_FACTOR = 0.2;
 
 function calculate_map_size(player_count: number): number {

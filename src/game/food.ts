@@ -21,10 +21,11 @@ export class Food {
 
   constructor(radius: number, mass: number) {
     this.id = `f_${(FOOD_ID_COUNTER++).toString(36)}`;
-    // Координаты еды генерируем в той же системе, что и игрока:
-    // центр в (0, 0), допустимый диапазон [-radius, radius].
-    this.x = Math.floor(Math.random() * (radius * 2)) - radius;
-    this.y = Math.floor(Math.random() * (radius * 2)) - radius;
+    // Координаты еды генерируем в той же системе, что и игрока (центр в (0, 0)),
+    // но с большим разбросом, чтобы еда была по всей большой карте.
+    const spawnRadius = radius * 3;
+    this.x = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
+    this.y = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
     this.mass = mass;
     this.sprite_type =
       this.sprite_types[
