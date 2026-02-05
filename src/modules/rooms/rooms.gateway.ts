@@ -492,6 +492,75 @@ export class RoomsGateway
     }
   }
 
+  /**
+   * Игрок сообщает, что съел конкретную еду.
+   *
+   * Бэкенд:
+   * - удаляет эту еду из game.foods
+   * - шлёт всем в комнате обновлённый список foods
+   *
+   * ВАЖНО: коллизии считаются на фронте, сервер только синхронизирует foods между игроками.
+   */
+  @SubscribeMessage('food_eaten')
+  async handleFoodEaten(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { room_id: string; food_id: string },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('error', { message: 'Authentication required' });
+        return;
+      }
+
+      const roomId = connection.room_id;
+      if (!roomId || roomId !== data.room_id) {
+        client.emit('error', { message: 'Invalid room_id' });
+        return;
+      }
+
+      const { get_game, set_changes } = await import('../../game');
+      const game = await get_game(roomId);
+      if (!game) {
+        client.emit('error', { message: 'Game not found' });
+        return;
+      }
+
+      if (!Array.isArray(game.foods)) {
+        client.emit('error', { message: 'Foods not initialized' });
+        return;
+      }
+
+      const index = game.foods.findIndex(
+        (f: any) => (f as any).id === data.food_id,
+      );
+
+      if (index === -1) {
+        client.emit('food_not_found', { food_id: data.food_id });
+        return;
+      }
+
+      game.foods.splice(index, 1);
+
+      await set_changes(roomId, game);
+
+      // Шлём всем в комнате обновлённый массив еды
+      this.server.to(roomId).emit('foods_updated', {
+        foods: game.foods.map((f: any) => ({
+          id: f.id,
+          x: f.x,
+          y: f.y,
+          mass: f.mass,
+          color: f.color,
+        })),
+      });
+    } catch (error: any) {
+      client.emit('error', {
+        message: error?.message || String(error),
+      });
+    }
+  }
+
   @SubscribeMessage('get_game_phase')
   async handleGetGamePhase(@ConnectedSocket() client: Socket) {
     try {

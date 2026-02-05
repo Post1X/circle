@@ -1,4 +1,7 @@
+let FOOD_ID_COUNTER = 0;
+
 export class Food {
+  id: string;
   x: number;
   y: number;
   mass: number;
@@ -17,6 +20,7 @@ export class Food {
   ];
 
   constructor(radius: number, mass: number) {
+    this.id = `f_${(FOOD_ID_COUNTER++).toString(36)}`;
     // Координаты еды генерируем в той же системе, что и игрока:
     // центр в (0, 0), допустимый диапазон [-radius, radius].
     this.x = Math.floor(Math.random() * (radius * 2)) - radius;

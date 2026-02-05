@@ -75,6 +75,7 @@ class MapInfo(BaseModel):
 
 
 class FoodModel(BaseModel):
+    id: str
     x: int
     y: int
     mass: float

@@ -647,6 +647,7 @@ export class Game {
       time_to_next_bonus_zone: this.get_time_to_next_bonus_zone(),
       game_phase: phase_info,
       foods: this.foods.map((f) => ({
+        id: (f as any).id,
         x: f.x,
         y: f.y,
         mass: f.mass,

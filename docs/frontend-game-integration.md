@@ -117,7 +117,7 @@
     "game_time": 123.4
   },
   "foods": [
-    { "x": 100, "y": -50, "mass": 2, "color": [255, 215, 0] }
+    { "id": "f_ab12", "x": 100, "y": -50, "mass": 2, "color": [255, 215, 0] }
   ],
   "players": [
     {
@@ -203,6 +203,12 @@ for each player in clientPlayers:
       const foodValue = food.mass
       player.money += foodValue / 20
       player.mass = calcRadiusFromMoney(player.money)
+
+      // Синхронизируем съедение с сервером
+      socket.emit('food_eaten', {
+        room_id: currentRoomId,
+        food_id: food.id,
+      })
 ```
 
 `calcRadiusFromMoney` можно взять по аналогии с серверным `get_radius`:
@@ -215,17 +221,24 @@ function calcRadiusFromMoney(money: number): number {
 }
 ```
 
-### 4.3. Спавн новой еды
+### 4.3. Синхронизация массива еды
 
-При желании фронт может сам добавлять новую еду при поедании:
+- После успешного удаления еды на бэке всем в комнате прилетает ивент:
 
-```ts
-if (food.eaten) {
-  clientFoods.push(randomFood(mapRadius))
-}
-```
+  - **Событие:** `foods_updated`
+  - **Payload:**
 
-Важно: логика спавна на бэке остаётся, но фронт может скрывать/добавлять еду локально для плотности, ориентируясь на `foods` из `game_state` как на базовый «слой» карты.
+  ```json
+  {
+    "foods": [
+      { "id": "f_x1", "x": 10, "y": 20, "mass": 2, "color": [255, 215, 0] }
+    ]
+  }
+  ```
+
+- Фронт должен:
+  - обновить свой `clientFoods` по этому массиву (например, заменить полностью);
+  - использовать `id` как ключ при отрисовке и в логике коллизий.
 
 ---
 

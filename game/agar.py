@@ -1,6 +1,7 @@
 import random
 import time
 from math import atan2, cos, sin, sqrt
+from uuid import uuid4
 from typing import List, Optional
 
 from .models import (
@@ -277,6 +278,7 @@ class Player:
 
 class Food:
     def __init__(self, radius: int, mass: float):
+        self.id = f"f_{uuid4().hex}"
         self.x = random.randint(0, radius - 1)
         self.y = random.randint(0, radius - 1)
         self.mass = mass
@@ -855,7 +857,8 @@ class Game:
             time_to_next_bonus_zone=self.get_time_to_next_bonus_zone(),
             game_phase=self.get_game_phase_info(),
             foods=[
-                FoodModel(x=f.x, y=f.y, mass=f.mass, color=f.color) for f in self.foods
+                FoodModel(id=f.id, x=f.x, y=f.y, mass=f.mass, color=f.color)
+                for f in self.foods
             ],
             map_info=MapInfo(
                 radius=self.radius,
