@@ -815,28 +815,9 @@ class Game:
                     dy = sin(angle)
                     player.move(dx, dy, self.radius)
 
-                for food in self.foods[:]:
-                    food_radius = max(2, int(food.mass))
-
-                    # Столкновение еды и игрока считаем по сумме радиусов,
-                    # как и при столкновении игроков между собой, с небольшим запасом
-                    if player.have_colision(food.x, food.y, food_radius + 0.5):
-                        # Применяем множитель бонусной зоны
-                        food_value = food.mass
-                        if player.in_bonus_zone:
-                            food_value *= player.current_bonus_multiplier
-                            # player.bonus_zone_collected += int(food_value)
-                            player.bonus_zone_collected += 1
-
-                        player.money += food_value / 20
-                        self.foods.remove(food)
-                        self.fund -= self.food_mass
-                        # if self.food_mass > self.fund:
-                        if True:
-                            self.foods.append(
-                                # Food(self.safe_zone_radius, self.food_mass)
-                                Food(self.radius, random.randint(1, 3))  # Генерируем еду по всей карте
-                            )
+                # Сервер больше не считает поедание еды:
+                # - он только генерирует и передаёт initial foods в game_state
+                # - фронт сам обрабатывает коллизии и рост игроков
 
                 for p2 in self.players.values():
                     if p2 == player:

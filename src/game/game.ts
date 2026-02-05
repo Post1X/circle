@@ -569,36 +569,11 @@ export class Game {
     this.update_zone_damage();
 
     for (const player of this.players.values()) {
+      // Сервер больше не считает поедание еды:
+      // - координаты игроков и еды приходят клиенту в game_state
+      // - фронт сам обрабатывает коллизии и локально считает mass/money
+      // Здесь остаётся только серверная логика скиллов, зоны и фаз.
       player.update_skills();
-
-      for (let i = this.foods.length - 1; i >= 0; i--) {
-        const food = this.foods[i];
-
-        // Радиус еды: минимум 2, чтобы коллизии были щедрыми, как в HUD
-        const foodRadius = Math.max(2, Math.floor(food.mass));
-        const dx = player.x - food.x;
-        const dy = player.y - food.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const playerRadius = player.get_radius();
-        const collisionThreshold = playerRadius + foodRadius;
-
-        // Небольшой запас 0.5, чтобы учесть округление на фронте/HUD
-        if (distance <= collisionThreshold + 0.5) {
-          let food_value = food.mass;
-          if (player.in_bonus_zone) {
-            food_value *= player.current_bonus_multiplier;
-            player.bonus_zone_collected += 1;
-          }
-
-          player.money += food_value / 20;
-          this.foods.splice(i, 1);
-          this.fund -= this.food_mass;
-
-          this.foods.push(
-            new Food(this.radius, Math.floor(Math.random() * 2) + 1),
-          );
-        }
-      }
 
       for (const p2 of this.players.values()) {
         if (p2 === player) continue;

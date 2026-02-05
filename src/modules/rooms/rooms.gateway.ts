@@ -661,6 +661,126 @@ export class RoomsGateway
     }
   }
 
+  /**
+   * Клиентский отчёт о результате матча.
+   *
+   * Фронтенд вызывает это событие ОДИН раз для каждого игрока
+   * после получения 'game_finished' и расчёта своих итогов.
+   *
+   * - Баланс игрока пополняется на final_winnings.
+   * - В таблицу статистики игры сохраняются переданные данные.
+   */
+  @SubscribeMessage('match_result_report')
+  async handleMatchResultReport(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      room_id: string;
+      final_winnings: number;
+      final_rank?: number | null;
+      exit_type: 'final' | 'early' | 'super' | 'death';
+      stats: {
+        skills_used: number;
+        free_teleport_used: boolean;
+        bonus_zone_collected: number;
+        outside_zone_damage: number;
+        teleport_uses: number;
+        shield_uses: number;
+        boost_uses: number;
+        skills_cost_total: number;
+      };
+    },
+  ) {
+    try {
+      const connection = this.activeConnections.get(client.id);
+      if (!connection || !connection.authenticated) {
+        client.emit('match_result_error', { message: 'Authentication required' });
+        return;
+      }
+
+      const userId = connection.user_id;
+      const roomId = connection.room_id;
+
+      if (!userId || !roomId) {
+        client.emit('match_result_error', { message: 'Not in game' });
+        return;
+      }
+
+      if (roomId !== data.room_id) {
+        client.emit('match_result_error', { message: 'Invalid room_id' });
+        return;
+      }
+
+      const allowedExitTypes = new Set(['final', 'early', 'super', 'death']);
+      if (!allowedExitTypes.has(data.exit_type)) {
+        client.emit('match_result_error', { message: 'Invalid exit_type' });
+        return;
+      }
+
+      const finalWinnings = Number(data.final_winnings);
+      if (!Number.isFinite(finalWinnings) || finalWinnings < 0) {
+        client.emit('match_result_error', { message: 'Invalid final_winnings' });
+        return;
+      }
+
+      const { stats } = data;
+      if (!stats) {
+        client.emit('match_result_error', { message: 'Missing stats block' });
+        return;
+      }
+
+      // Безопасное приведение и базовая валидация статистики
+      const safeStats = {
+        skills_used: Math.max(0, Number(stats.skills_used) || 0),
+        final_winnings: finalWinnings,
+        free_teleport_used: !!stats.free_teleport_used,
+        bonus_zone_collected: Math.max(0, Number(stats.bonus_zone_collected) || 0),
+        outside_zone_damage: Math.max(0, Number(stats.outside_zone_damage) || 0),
+        teleport_uses: Math.max(0, Number(stats.teleport_uses) || 0),
+        shield_uses: Math.max(0, Number(stats.shield_uses) || 0),
+        boost_uses: Math.max(0, Number(stats.boost_uses) || 0),
+        skills_cost_total: Math.max(0, Number(stats.skills_cost_total) || 0),
+      };
+
+      // Получаем стартовое время игры, если возможно
+      const { get_game } = await import('../../game');
+      const game = await get_game(roomId);
+      const gameStartTime =
+        game && typeof game.game_start_time === 'number'
+          ? game.game_start_time
+          : Math.floor(Date.now() / 1000);
+
+      // 1) Сохраняем статистику игрока по матчу
+      await this.gameStatsService.savePlayerGameStatsFromData(
+        userId,
+        roomId,
+        safeStats,
+        data.exit_type,
+        gameStartTime,
+        data.final_rank ?? null,
+      );
+
+      // 2) Начисляем выигрыш на баланс пользователя
+      if (finalWinnings > 0) {
+        await this.withdrawalService.creditUserBalance(userId, finalWinnings);
+      }
+
+      client.emit('match_result_accepted', {
+        room_id: roomId,
+        final_winnings: finalWinnings,
+        final_rank: data.final_rank ?? null,
+        exit_type: data.exit_type,
+      });
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to handle match_result_report: ${error?.message || error}`,
+      );
+      client.emit('match_result_error', {
+        message: error?.message || String(error),
+      });
+    }
+  }
+
   private async buildLeaderboardData(roomId: string, game: any): Promise<any | null> {
     try {
       // Получаем всех пользователей одним запросом для получения аватарок
@@ -1162,8 +1282,10 @@ export class RoomsGateway
               null,
             );
             await this.gameTrackerService.removePlayerFromRoom(playerId, roomId);
-          } catch (error) {
-            this.logger.error(`Failed to save stats for player ${playerId}: ${error.message}`);
+          } catch (error: any) {
+            this.logger.error(
+              `Failed to save stats for player ${playerId}: ${error?.message || error}`,
+            );
           }
         }
       }
@@ -1187,37 +1309,21 @@ export class RoomsGateway
             message: 'Игра завершена!',
           });
           clearInterval(loop);
-          
+
+          // Финал игры:
+          // - сервер больше не распределяет выигрыши сам (игровая экономика на фронте)
+          // - фронт должен отправить match_result_report с итогами по каждому игроку
+          // Здесь мы просто нотифицируем о завершении и закрываем игру.
           currentGame.finalize_game();
-          const finalists = currentGame.finalists;
-          for (let i = 0; i < finalists.length; i++) {
-            const playerId = finalists[i];
-            const player = currentGame.players.get(playerId);
-            if (player) {
-              try {
-                await this.gameStatsService.savePlayerGameStats(
-                  playerId,
-                  roomId,
-                  player,
-                  'final',
-                  currentGame.game_start_time,
-                  i + 1,
-                );
-                await this.gameTrackerService.removePlayerFromRoom(playerId, roomId);
-              } catch (error) {
-                this.logger.error(`Failed to save stats for finalist ${playerId}: ${error.message}`);
-              }
-            }
-          }
 
           const results = {
             early_exits: Object.fromEntries(currentGame.early_exits),
             super_exits: Object.fromEntries(currentGame.super_exits),
-            finalists: finalists,
+            finalists: currentGame.finalists,
             bonus_fund: currentGame.bonus_fund,
             zone_fund: currentGame.zone_fund,
             final_winnings: Object.fromEntries(
-              finalists.map((pid) => [
+              currentGame.finalists.map((pid) => [
                 pid,
                 currentGame.players.get(pid)?.final_winnings || 0,
               ]),
