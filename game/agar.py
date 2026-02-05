@@ -816,11 +816,11 @@ class Game:
                     player.move(dx, dy, self.radius)
 
                 for food in self.foods[:]:
-                    food_radius = max(1, int(food.mass))
+                    food_radius = max(2, int(food.mass))
 
                     # Столкновение еды и игрока считаем по сумме радиусов,
-                    # как и при столкновении игроков между собой
-                    if player.have_colision(food.x, food.y, food_radius):
+                    # как и при столкновении игроков между собой, с небольшим запасом
+                    if player.have_colision(food.x, food.y, food_radius + 0.5):
                         # Применяем множитель бонусной зоны
                         food_value = food.mass
                         if player.in_bonus_zone:
