@@ -574,13 +574,14 @@ export class Game {
       for (let i = this.foods.length - 1; i >= 0; i--) {
         const food = this.foods[i];
 
-        const foodRadius = Math.floor(food.mass);
+        const foodRadius = Math.max(1, Math.floor(food.mass));
         const dx = player.x - food.x;
         const dy = player.y - food.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
-        const effectivePlayerRadius = player.get_radius() * FOOD_COLLISION_FACTOR;
+        const playerRadius = player.get_radius();
 
-        if (distance <= effectivePlayerRadius + foodRadius) {
+        // Столкновение считается, если расстояние меньше либо равно сумме радиусов
+        if (distance <= playerRadius + foodRadius) {
           let food_value = food.mass;
           if (player.in_bonus_zone) {
             food_value *= player.current_bonus_multiplier;

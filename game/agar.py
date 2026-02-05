@@ -816,10 +816,11 @@ class Game:
                     player.move(dx, dy, self.radius)
 
                 for food in self.foods[:]:
-                    distance = sqrt((player.x - food.x) ** 2 + (player.y - food.y) ** 2)
-                    effective_radius = player.get_radius() * FOOD_COLLISION_FACTOR + int(food.mass)
+                    food_radius = max(1, int(food.mass))
 
-                    if distance <= effective_radius:
+                    # Столкновение еды и игрока считаем по сумме радиусов,
+                    # как и при столкновении игроков между собой
+                    if player.have_colision(food.x, food.y, food_radius):
                         # Применяем множитель бонусной зоны
                         food_value = food.mass
                         if player.in_bonus_zone:

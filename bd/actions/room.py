@@ -2,6 +2,7 @@ from bd.actions.base import Actions
 from bd.models import GameRoom
 from sqlalchemy import select
 from typing import Optional, List
+from datetime import datetime
 
 class RoomActions(Actions):
     async def create_room(self, entry_fee: int, min_players: int, max_players: int, status: str = "waiting") -> GameRoom:
@@ -10,6 +11,7 @@ class RoomActions(Actions):
             min_players=min_players,
             max_players=max_players,
             status=status,
+            created_at=datetime.utcnow(),
         )
         self.session.add(room)
         await self.session.commit()
