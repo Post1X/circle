@@ -21,9 +21,7 @@ export class Food {
 
   constructor(radius: number, mass: number) {
     this.id = `f_${(FOOD_ID_COUNTER++).toString(36)}`;
-    // Координаты еды генерируем в той же системе, что и игрока (центр в (0, 0)),
-    // но с большим разбросом, чтобы еда была по всей большой карте.
-    const spawnRadius = radius * 3;
+    const spawnRadius = radius;
     this.x = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
     this.y = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
     this.mass = mass;
