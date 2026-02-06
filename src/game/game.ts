@@ -3,24 +3,8 @@ import { Player } from './player';
 import { BonusZone } from './bonus-zone';
 import { Food, gen_food } from './food';
 
-const BASE_RADIUS = 1200;
+const MAP_RADIUS = 1200;
 const FOOD_COLLISION_FACTOR = 0.2;
-
-function calculate_map_size(player_count: number): number {
-  let scale_factor: number;
-  if (player_count <= 5) {
-    scale_factor = 1;
-  } else if (player_count <= 20) {
-    scale_factor = 1 + (player_count - 5) * 0.027;
-  } else if (player_count <= 50) {
-    scale_factor = 1.5 + (player_count - 20) * 0.017;
-  } else if (player_count <= 100) {
-    scale_factor = 2.0 + (player_count - 50) * 0.01;
-  } else {
-    scale_factor = Math.min(3.0, 2.5 + (player_count - 100) * 0.005);
-  }
-  return Math.floor(BASE_RADIUS * scale_factor);
-}
 
 export class Game {
   players: Map<string, Player> = new Map();
@@ -73,7 +57,7 @@ export class Game {
 
   constructor(expected_players: number, fund: number) {
     this.fund = fund;
-    this.radius = calculate_map_size(expected_players);
+    this.radius = MAP_RADIUS;
     this.expected_players = expected_players;
     this.original_radius = this.radius;
     this.safe_zone_radius = this.radius;

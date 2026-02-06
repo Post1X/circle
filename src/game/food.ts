@@ -21,9 +21,9 @@ export class Food {
 
   constructor(radius: number, mass: number) {
     this.id = `f_${(FOOD_ID_COUNTER++).toString(36)}`;
-    const spawnRadius = radius;
-    this.x = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
-    this.y = Math.floor(Math.random() * (spawnRadius * 2)) - spawnRadius;
+    // В тех же границах, что и игроки: [0, radius]
+    this.x = Math.floor(Math.random() * (radius + 1));
+    this.y = Math.floor(Math.random() * (radius + 1));
     this.mass = mass;
     this.sprite_type =
       this.sprite_types[
@@ -48,15 +48,17 @@ export class Food {
   }
 }
 
+const FOOD_COUNT = 400;
+
 export function gen_food(
   fund: number,
   radius: number,
-  num: number = 100,
+  num: number = FOOD_COUNT,
 ): [Food[], number] {
-  const num_food = Math.min(100, Math.floor(Math.random() * (radius / 100)) + 500);
-  const food_fund = Math.floor(fund / num_food);
+  const num_food = num;
+  const food_fund = num_food ? Math.floor(fund / num_food) : 0;
   const foods: Food[] = [];
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < num_food; i++) {
     foods.push(new Food(radius, Math.floor(Math.random() * 2) + 1));
   }
   return [foods, food_fund];
