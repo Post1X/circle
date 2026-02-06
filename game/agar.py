@@ -279,11 +279,10 @@ class Player:
 class Food:
     def __init__(self, radius: int, mass: float):
         self.id = f"f_{uuid4().hex}"
-        # Спавним еду в той же системе координат, что и игроки,
-        # но с большим радиусом разброса, чтобы покрывать всю большую карту.
-        spawn_radius = radius * 3
-        self.x = random.randint(-spawn_radius, spawn_radius)
-        self.y = random.randint(-spawn_radius, spawn_radius)
+        # Спавним еду в той же системе координат, что и игроки
+        # Используем те же границы, что и для игроков: [0, radius]
+        self.x = random.randint(0, radius)
+        self.y = random.randint(0, radius)
         self.mass = mass
         self.color = (
             random.randint(0, 255),
