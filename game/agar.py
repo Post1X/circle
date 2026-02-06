@@ -19,6 +19,8 @@ from .models import (
 
 # Базовые размеры карты
 BASE_RADIUS = 400
+MAP_RADIUS = 1200  # фиксированный радиус карты
+FOOD_COUNT = 400  # количество еды на карте
 FOOD_COLLISION_FACTOR = 0.2
 
 
@@ -320,14 +322,12 @@ class Food:
         self.color = sprite_colors.get(self.sprite_type, (0, 255, 0))
 
 
-def gen_food(fund: float, radius: int, num=100) -> tuple[list[Food], int]:
-    num_food = min(100, random.randint(int(radius / 100), 500))
-    food_fund = int(fund / num_food)
+def gen_food(fund: float, radius: int, num: int = FOOD_COUNT) -> tuple[list[Food], int]:
+    num_food = num
+    food_fund = int(fund / num_food) if num_food else 0
     return [
-        # Food(radius=radius, mass=food_fund) for _ in range(min(num_food, num))
-        # Food(radius=radius, mass=random.randint(1, 3)) for _ in range(min(num_food, num))
         Food(radius=radius, mass=random.randint(1, 3))
-        for _ in range(100)
+        for _ in range(num_food)
     ], food_fund
 
 
@@ -342,7 +342,7 @@ class Game:
         self.players = {}
         self.fund: float = fund
 
-        self.radius = calculate_map_size(expected_players)
+        self.radius = MAP_RADIUS
         self.expected_players = expected_players
 
         self.original_radius = self.radius
